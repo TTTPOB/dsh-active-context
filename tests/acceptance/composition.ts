@@ -12,7 +12,7 @@ import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
  * This is source-plane composition, not a replacement for package-manager peer resolution.
  */
 export async function loadActiveContext(ctx: Context, config: { acp?: Partial<AcpConfig>; basic?: BasicCompactionConfig } = {}) {
-  const scratch = fileURLToPath(new URL('./.cache/', import.meta.url))
+  const scratch = fileURLToPath(new URL('../../.scratch/text-anchors/tests/', import.meta.url))
   await mkdir(scratch, { recursive: true })
   const root = await mkdtemp(join(scratch, 'loader-'))
   try {

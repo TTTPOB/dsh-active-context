@@ -3,11 +3,10 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
-import { buildContextMap } from '../../../dsh-session-tools/src/context-map.ts'
 import type { CompressInput } from '../../src/types.ts'
 import { loadActiveContext } from './composition.ts'
 import { createLoopFixture, runTurn, seedHistory } from './fixtures.ts'
-import { mapOptions, selection } from './compression-fixture.ts'
+import { selection } from './compression-fixture.ts'
 
 it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as const)(
   'keeps real native commits and the original tool pair after %s', async mode => {
@@ -22,7 +21,7 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
       },
       request => {
         expect(JSON.stringify(request.messages)).toContain('compress-failure')
-        return [{ type: 'text', text: 'Committed facts acknowledged; refresh the map before retrying.' }]
+        return [{ type: 'text', text: 'Committed facts acknowledged; select current text again before retrying.' }]
       },
     ], async context => {
       await context.plugin(TokenMeter)
@@ -31,10 +30,7 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
     })
     try {
       await seedHistory(agent)
-      const map = await ctx.sessionQuery.captureSession(agent.id, (reader, observation) => buildContextMap(
-        reader, observation, ctx.tokenMeter.measure(reader as Session), { view: 'messages', limit: 100 }, mapOptions,
-      ), { projectionMode: 'all' })
-      input = selection(map)
+      input = selection(agent.session)
       if (mode === 'partial-no-shrink') input = { ...input, regions: input.regions.map((region, index) => index === 0
         ? { ...region, summary: 'Verbose summary fails the native shrink check. '.repeat(160) } : region) }
       let stimulated = false
@@ -51,7 +47,7 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
       const events = agent.session.snapshotEvents()
       const native = events.filter(event => event.type === 'compaction/summary')
       expect(native).toHaveLength(mode === 'post-policy-error' ? 2 : 1)
-      expect(native[0]!.data.shadowedSeqs[0]).toBe(input.regions[1]!.start.seq)
+      expect(JSON.stringify(agent.session.eventAt(native[0]!.data.shadowedSeqs[0]!))).toContain('Completed analysis B:')
       const author = events.find(event => event.type === 'assistant/message' && event.data.message.content.some(block => block.type === 'tool-call' && block.id === 'compress-failure'))
       const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'compress-failure')
       if (author === undefined || result?.type !== 'tool/result') throw new Error('Original author/result diagnostic pair missing')
@@ -81,7 +77,7 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
       } else {
         expect(facts.status).toBe('partial')
         expect(facts.regions[0].status).toBe('failed')
-        expect(facts.execution_order).toEqual(['older-b', 'older-a'])
+        expect(facts.execution_order).toEqual([1, 0])
         expect(adapter.requests).toHaveLength(5)
       }
       const replay = Session.create(SessionId('failure-replay'), JSON.parse(JSON.stringify(events)) as SessionEvent[])

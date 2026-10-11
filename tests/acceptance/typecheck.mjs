@@ -17,12 +17,10 @@ for (const name of ['cordis', 'cosmokit', 'schemastery']) {
 }
 paths['@deepseek-ai/cordis-plugin-loader'] = [join(harness, 'vendor/loader/lib/types/index.d.ts')]
 paths['@deepseek-ai/cordis-plugin-include'] = [join(harness, 'vendor/include/lib/types/index.d.ts')]
-paths['dsh-session-tools/context-map'] = [resolve(acp, '../dsh-session-tools/src/context-map.ts')]
 paths.vitest = [join(harness, 'node_modules/vitest/dist/index.d.ts')]
 const files = [
   ...ts.sys.readDirectory(join(acp, 'src'), ['.ts'], undefined, ['**/*.ts']),
   ...ts.sys.readDirectory(join(acp, 'tests'), ['.ts'], ['**/.cache/**'], ['**/*.ts']),
-  ...ts.sys.readDirectory(resolve(acp, '../dsh-session-tools/src'), ['.ts'], undefined, ['context-map*.ts']),
 ]
 const options = {
   ...parsed.options, paths, composite: false, incremental: false, noEmit: true,
@@ -37,5 +35,5 @@ if (diagnostics.length !== 0) {
   }))
   process.exitCode = 1
 } else {
-  console.log('Strict source typecheck passed (' + files.length + ' ACP/map source and test roots; TypeScript ' + ts.version + '; no diagnostic filtering).')
+  console.log('Strict source typecheck passed (' + files.length + ' ACP source and test roots; TypeScript ' + ts.version + '; no diagnostic filtering).')
 }

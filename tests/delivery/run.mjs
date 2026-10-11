@@ -2,18 +2,16 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 const { values } = parseArgs({ options: {
-  acp: { type: 'string' }, map: { type: 'string' }, query: { type: 'string' },
+  acp: { type: 'string' }, query: { type: 'string' },
 } })
-for (const key of ['acp', 'map', 'query']) assert.ok(values[key], `--${key} requires a tarball path or verified Release URL`)
+for (const key of ['acp', 'query']) assert.ok(values[key], `--${key} requires a tarball path or verified Release URL`)
 const source = value => value.startsWith('https://') ? value : 'file:' + resolve(value)
-const store = dirname(execFileSync('pnpm', ['store', 'path'], { cwd: fileURLToPath(new URL('../../', import.meta.url)), encoding: 'utf8' }).trim())
-const scratch = process.env.DSH_CONFIG_TEST_ROOT ?? tmpdir()
+const scratch = process.env.DSH_CONFIG_TEST_ROOT ?? fileURLToPath(new URL('../../.scratch/text-anchors/delivery/', import.meta.url))
 await mkdir(scratch, { recursive: true })
 const root = await mkdtemp(join(scratch, 'delivery-'))
 const host = join(root, 'installation')
@@ -25,8 +23,8 @@ const sqlite = 'https://github.com/TTTPOB/deepseek-harness/releases/download/dai
 const put = (file, value) => writeFile(file, JSON.stringify(value, null, 2) + '\n')
 const install = cwd => execFileSync('pnpm', [
   'install', ...(cwd === host ? [] : ['--ignore-workspace']), '--config.auto-install-peers=false',
-  '--config.enable-global-virtual-store=false', '--config.verify-deps-before-run=false', `--config.store-dir=${store}`,
-], { cwd, stdio: 'inherit', env: { ...process.env, DSH_HOME: home }, timeout: 600_000 })
+  '--config.enable-global-virtual-store=false', '--config.verify-deps-before-run=false',
+], { cwd, stdio: 'inherit', env: { ...process.env, npm_config_verify_deps_before_run: 'false', DSH_HOME: home }, timeout: 600_000 })
 try {
   await mkdir(host, { recursive: true })
   await mkdir(profile, { recursive: true })
@@ -53,7 +51,7 @@ try {
       '@deepseek-ai/dsh-session-query-sqlite': sqlite,
     },
   })
-  const dependencies = { 'dsh-active-context': source(values.acp), 'dsh-session-tools': source(values.map) }
+  const dependencies = { 'dsh-active-context': source(values.acp) }
   await put(manifestPath, { name: 'acp-isolated-profile', private: true, type: 'module', dependencies, dsh: { profile: { bundles: [] } } })
   install(host)
   install(profile)
@@ -64,7 +62,7 @@ try {
   const hostRequire = createRequire(join(host, 'package.json'))
   const anchor = await realpath(hostRequire.resolve('@deepseek-ai/dsh/package.json'))
   const result = execFileSync(process.execPath, [fileURLToPath(new URL('./verify.mjs', import.meta.url)), anchor, home], {
-    cwd: profile, env: { ...process.env, DSH_HOME: home }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], timeout: 120_000,
+    cwd: profile, env: { ...process.env, npm_config_verify_deps_before_run: 'false', DSH_HOME: home }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], timeout: 120_000,
   })
   console.log(result.trim())
 } finally {

@@ -25,10 +25,11 @@ function sample(meter: TokenMeter, reader: SessionCaptureReader, observation: Se
   }
 }
 
-it('captures a real Loop live Session and its persisted cold copy without activation or writes', async () => {
-  const scratch = fileURLToPath(new URL('./.cache/', import.meta.url))
+it('captures a real Loop live Session and its persisted cold copy without activation or writes', async ({ onTestFinished }) => {
+  const scratch = fileURLToPath(new URL('../../.scratch/text-anchors/tests/', import.meta.url))
   await mkdir(scratch, { recursive: true })
   const root = await mkdtemp(scratch + 'query-storage-')
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
   const cold = new Context()
   const live = await createLoopFixture([
     [{ type: 'text', text: 'Historical A completed.' }],
@@ -92,6 +93,5 @@ it('captures a real Loop live Session and its persisted cold copy without activa
   } finally {
     await live.ctx.fiber.dispose()
     await cold.fiber.dispose()
-    await rm(root, { recursive: true, force: true })
   }
 })

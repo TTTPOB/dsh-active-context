@@ -7,20 +7,21 @@ import type { SessionEvent, SessionId, SessionSeq } from '@deepseek-ai/dsh-sessi
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 
-import type { SnapshotRef, Anchor as RegionAnchor } from 'dsh-session-tools/context-map'
-export type { SnapshotRef, Anchor as RegionAnchor } from 'dsh-session-tools/context-map'
+/** Literal substring of one current derived text block, optionally limited by actual role. */
+export interface TextEndpoint {
+  readonly text: string
+  readonly role?: Message['role']
+}
 
 /** One model-written replacement. */
 export interface RegionInput {
-  readonly id: string
-  readonly start: RegionAnchor
-  readonly end: RegionAnchor
+  /** Exactly two endpoints; both complete nodes are included. */
+  readonly range: readonly TextEndpoint[]
   readonly summary: string
 }
 
 /** One independently submitted native/both tool call. */
 export interface CompressInput {
-  readonly snapshot_ref: SnapshotRef
   readonly regions: readonly RegionInput[]
 }
 
@@ -43,8 +44,6 @@ export interface AcpConfig {
   readonly confirmationMaxIds: number
   readonly reminderMaxTokens: number
   readonly reminderMaxBytes: number
-  readonly reminderMaxRegions: number
-  readonly reminderPreviewChars: number
   readonly taskSourceKinds: readonly string[]
   readonly pressureRoutes: readonly PressureRoute[]
 }
@@ -84,7 +83,6 @@ export interface ResolvedRegion {
 
 /** Actual replacement evidence remains available even if native closing throws. */
 export interface RegionFact {
-  readonly id: string
   readonly inputIndex: number
   status: 'not_attempted' | 'committed' | 'committed_with_error' | 'failed' | 'unconfirmed'
   compactionId?: CompactionId
@@ -101,9 +99,8 @@ export interface RegionFact {
 /** Final body outcome, before the tool registry's cancellation and post policies. */
 export interface BatchFacts {
   status: 'batch_success' | 'partial' | 'all_failed'
-  readonly mapId: string
   readonly regions: RegionFact[]
-  readonly executionOrder: string[]
+  readonly executionOrder: number[]
   stopReason?: string
 }
 

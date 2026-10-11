@@ -17,16 +17,16 @@ export const name = 'active-context'
 // The provider is created here: injecting compaction would deadlock its own activation.
 export const inject = ['agents', 'sessions', 'tools', 'systemPrompt', 'llm', 'tokenMeter', 'sessionQuery', 'sessionProjections']
 
-const anchor = {
+const endpoint = {
   type: 'object', additionalProperties: false,
   properties: {
-    seq: { type: 'integer', required: true },
-    edge: { type: 'string', enum: ['before', 'after'], required: true },
+    text: { type: 'string', required: true, description: 'Non-empty, case-sensitive literal substring within one current derived text block; no trimming or normalization.' },
+    role: { type: 'string', enum: ['system', 'developer', 'user', 'assistant', 'tool'] },
   },
 } as const
 
 /** Working-model guidance: summaries are authored here, not by an auxiliary model. */
-export const ACP_INSTRUCTIONS = 'When earlier context is no longer needed verbatim, inspect session_context_map and recall exact source events as needed. Submit model-written summaries with context_compress in one standalone assistant response: exactly one native/both context_compress call, no other tools, no task prose, never run_code/PTC. Reasoning is allowed. Choose non-adjacent regions from one snapshot_ref. Preserve conclusions, exact names and paths, modifications, verification evidence, failures, open questions, constraints and uncertainty, and readback references. Protected current instructions, current Step and latest task input cannot be selected. On partial or failed submission, refresh the map and select only failed or unattempted work; committed regions are not rolled back.'
+export const ACP_INSTRUCTIONS = 'When earlier context is no longer needed verbatim, recall exact source events as needed. Submit model-written summaries with context_compress in one standalone assistant response: exactly one native/both context_compress call, no other tools, no task prose, never run_code/PTC. Reasoning is allowed. Choose non-adjacent regions using exactly two literal text endpoints per range, optionally qualified by role. Each endpoint must uniquely match one node in the current derived text blocks; both complete nodes are included and may be the same node. Matching is case-sensitive without trimming; reasoning and tool arguments are not searched. Preserve conclusions, exact names and paths, modifications, verification evidence, failures, open questions, constraints and uncertainty, and readback references. Protected current instructions, current Step and latest task input cannot be selected. On partial or failed submission, select only failed or unattempted work again using current text; committed regions are not rolled back.'
 
 /** Mount the unique provider, real worker hooks, and one awaited outer wrapper. */
 export function apply(ctx: Context, config: PluginConfig = Config({})): void {
@@ -44,24 +44,14 @@ export function apply(ctx: Context, config: PluginConfig = Config({})): void {
   ctx.systemPrompt.section({ name: 'active-context', order: 80, text: ACP_INSTRUCTIONS })
   ctx.tools.register(defineTool({
     name: 'context_compress',
-    description: 'Replace old non-adjacent Surface regions with your own summaries. Standalone native/both call only: no other calls or task prose, never run_code/PTC. Use one session_context_map snapshot_ref and its seq+before/after anchors. Full preflight precedes tail-to-head native transactions; first failure stops, with no rollback. A successful result is committed, with call/result cleanup pending final settlement.',
+    description: 'Replace old non-adjacent Surface regions with your own summaries. Standalone native/both call only: no other calls or task prose, never run_code/PTC. Each range has exactly two literal text endpoints with optional role, independently unique across current derived text-block nodes; both complete endpoint nodes are included. No reasoning, tool arguments or Log search. Full preflight precedes tail-to-head native transactions; first failure stops, with no rollback. A successful result is committed, with call/result cleanup pending final settlement.',
     parameters: {
-      snapshot_ref: {
-        type: 'object', additionalProperties: false, required: true,
-        properties: {
-          session_id: { type: 'string', required: true },
-          read_seq: { type: 'integer', required: true },
-          map_id: { type: 'string', required: true },
-        },
-      },
       regions: {
         type: 'array', required: true,
         items: {
           type: 'object', additionalProperties: false,
           properties: {
-            id: { type: 'string', required: true },
-            start: { ...anchor, required: true },
-            end: { ...anchor, required: true },
+            range: { type: 'array', required: true, items: endpoint, description: 'Exactly two endpoints: start then end in current Surface order, inclusive of whole nodes.' },
             summary: { type: 'string', required: true },
           },
         },

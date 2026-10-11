@@ -47,9 +47,6 @@ importers:
       '@types/node':
         specifier: ^26.6.3
         version: 26.6.5
-      dsh-session-tools:
-        specifier: https://github.com/TTTPOB/dsh-session-tools/releases/download/v0.2.0/dsh-session-tools-0.2.0.tgz
-        version: https://github.com/TTTPOB/dsh-session-tools/releases/download/v0.2.0/dsh-session-tools-0.2.0.tgz(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-session-projection@0.1.7-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-session@https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-0.1.7-rc.2-fork1.tgz(@deepseek-ai/cordis@4.0.4)))(@deepseek-ai/dsh-session-query@https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork17/deepseek-ai-dsh-session-query-0.1.7-rc.2-fork4.tgz(e5fbe30cbd17e42b6e54102df48d942b))(@deepseek-ai/dsh-session@https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-0.1.7-rc.2-fork1.tgz(@deepseek-ai/cordis@4.0.4))(@deepseek-ai/dsh-token-meter@0.1.7-rc.2(de539277beac5223ad08b99376d1dc7f))(@deepseek-ai/dsh-tools@0.1.7-rc.2(b16b07f8a80fa01bd90ace35d0cb539b))(@deepseek-ai/schemastery@3.18.4)
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
@@ -423,25 +420,6 @@ packages:
   detect-libc@2.1.2:
     resolution: {integrity: sha512-Btj2BOOO83o3WyH59e8MgXsxEQVcarkUOpEYrubB0urwnN10yQ364rsiByU11nZlqWYZm05i/of7io4mzihBtQ==}
     engines: {node: '>=8'}
-
-  dsh-session-tools@https://github.com/TTTPOB/dsh-session-tools/releases/download/v0.2.0/dsh-session-tools-0.2.0.tgz:
-    resolution: {integrity: sha512-29W8YpTv/lDZcpwD8MkA31FCqWziQSYdw0bTtmJNdJLW5rRZ5jrBLLx+8ypbqu2F3rgul8gUXmish+V0IXZaVg==, tarball: https://github.com/TTTPOB/dsh-session-tools/releases/download/v0.2.0/dsh-session-tools-0.2.0.tgz}
-    version: 0.2.0
-    peerDependencies:
-      '@deepseek-ai/cordis': 4.0.4
-      '@deepseek-ai/dsh-session': 0.1.7-rc.2-fork1
-      '@deepseek-ai/dsh-session-projection': 0.1.7-rc.2
-      '@deepseek-ai/dsh-session-projection-cache': 0.1.7-rc.2
-      '@deepseek-ai/dsh-session-query': 0.1.7-rc.2-fork4
-      '@deepseek-ai/dsh-token-meter': 0.1.7-rc.2
-      '@deepseek-ai/dsh-tools': 0.1.7-rc.2
-      '@deepseek-ai/dsh-workspace': 0.1.7-rc.2
-      '@deepseek-ai/schemastery': 3.18.4
-    peerDependenciesMeta:
-      '@deepseek-ai/dsh-session-projection-cache':
-        optional: true
-      '@deepseek-ai/dsh-token-meter':
-        optional: true
 
   es-module-lexer@2.3.2:
     resolution: {integrity: sha512-poHGpORABojJJucnV9KbOavETW8lBVnphkW77ER5/BQ5Fz7oXSoCNek7IH3vR5nRjdsEz926ibFYX8KtLQmdyw==}
@@ -998,17 +976,6 @@ snapshots:
   convert-source-map@2.0.0: {}
 
   detect-libc@2.1.2: {}
-
-  dsh-session-tools@https://github.com/TTTPOB/dsh-session-tools/releases/download/v0.2.0/dsh-session-tools-0.2.0.tgz(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-session-projection@0.1.7-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-session@https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-0.1.7-rc.2-fork1.tgz(@deepseek-ai/cordis@4.0.4)))(@deepseek-ai/dsh-session-query@https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork17/deepseek-ai-dsh-session-query-0.1.7-rc.2-fork4.tgz(e5fbe30cbd17e42b6e54102df48d942b))(@deepseek-ai/dsh-session@https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-0.1.7-rc.2-fork1.tgz(@deepseek-ai/cordis@4.0.4))(@deepseek-ai/dsh-token-meter@0.1.7-rc.2(de539277beac5223ad08b99376d1dc7f))(@deepseek-ai/dsh-tools@0.1.7-rc.2(b16b07f8a80fa01bd90ace35d0cb539b))(@deepseek-ai/schemastery@3.18.4):
-    dependencies:
-      '@deepseek-ai/cordis': 4.0.4
-      '@deepseek-ai/dsh-session': https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-0.1.7-rc.2-fork1.tgz(@deepseek-ai/cordis@4.0.4)
-      '@deepseek-ai/dsh-session-projection': 0.1.7-rc.2(@deepseek-ai/cordis@4.0.4)(@deepseek-ai/dsh-session@https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-0.1.7-rc.2-fork1.tgz(@deepseek-ai/cordis@4.0.4))
-      '@deepseek-ai/dsh-session-query': https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork17/deepseek-ai-dsh-session-query-0.1.7-rc.2-fork4.tgz(e5fbe30cbd17e42b6e54102df48d942b)
-      '@deepseek-ai/dsh-tools': 0.1.7-rc.2(b16b07f8a80fa01bd90ace35d0cb539b)
-      '@deepseek-ai/schemastery': 3.18.4
-    optionalDependencies:
-      '@deepseek-ai/dsh-token-meter': 0.1.7-rc.2(de539277beac5223ad08b99376d1dc7f)
 
   es-module-lexer@2.3.2: {}
 

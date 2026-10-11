@@ -49,7 +49,6 @@ export async function providerFixture() {
     session.append('step/end', { turn, step: 1 })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
   }
-  const readSeq = session.seq - 1
   session.append('turn/start', { turn: 4 })
   const latestTask = session.append('user/message', createUserMessage({ content: [{ type: 'text', text: 'current task' }], source: { kind: 'user' } }), { surfaceOp: 'append' }).seq
   session.append('step/start', { turn: 4, step: 1 })
@@ -60,17 +59,20 @@ export async function providerFixture() {
   const engine = new ActiveCompactionEngine(ctx, { auto: false })
   const state: AcpState = { identities: new WeakMap(), facts: new WeakMap(), hideCandidates: new WeakMap() }
   function input(regions?: readonly RegionInput[]): CompressInput {
-    return { snapshot_ref: { session_id: agent.id, read_seq: readSeq, map_id: 'fixture-map' }, regions: regions ?? [
-      { id: 'head', start: { seq: old[0]!, edge: 'before' }, end: { seq: old[0]!, edge: 'after' }, summary: 'completed head' },
-      { id: 'tail', start: { seq: old[2]!, edge: 'before' }, end: { seq: old[2]!, edge: 'after' }, summary: 'completed tail' },
+    return { regions: regions ?? [
+      { range: [{ text: 'completed 1 ' }, { text: 'completed 1 ' }], summary: 'completed head' },
+      { range: [{ text: 'completed 3 ' }, { text: 'completed 3 ' }], summary: 'completed tail' },
     ] }
   }
+  let submittedBatch = input()
+  let rendered = ''
+  ctx.tools.register(defineTool({ name: 'fixture-submit', description: 'Submit a test-only active batch', parameters: {}, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, async execute(_args, exec) {
+    rendered = await submitRegions(ctx, engine, exec, identity, submittedBatch, config, state)
+    return rendered
+  } }))
   async function submit(batch = input()) {
-    let rendered = ''
-    ctx.tools.register(defineTool({ name: 'fixture-submit', description: 'Submit a test-only active batch', parameters: {}, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, async execute(_args, exec) {
-      rendered = await submitRegions(ctx, engine, exec, identity, batch, config, state)
-      return rendered
-    } }))
+    submittedBatch = batch
+    rendered = ''
     const result = await ctx.tools.execute({ name: 'fixture-submit', callId, arguments: {}, signal: new AbortController().signal, agent })
     return { result, rendered, facts: rendered ? JSON.parse(rendered) : undefined }
   }

@@ -19,13 +19,11 @@ const sourceAliases = Object.entries(config.config.compilerOptions.paths).map(([
 
 export default {
   root: harness,
-  cacheDir: path('./.cache/vite/'),
+  cacheDir: path('../../.scratch/text-anchors/vite/'),
   plugins: [standardDecoratorPlugin()],
   resolve: {
     alias: [
       { find: /^vitest$/, replacement: path('../../../deepseek-harness/node_modules/vitest/dist/index.js') },
-      { find: /^dsh-session-tools\/context-map$/, replacement: path('../../../dsh-session-tools/src/context-map.ts') },
-      { find: /^dsh-session-tools$/, replacement: path('../../../dsh-session-tools/src/index.ts') },
       ...sourceAliases,
     ],
   },

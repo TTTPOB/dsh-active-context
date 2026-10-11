@@ -48,8 +48,10 @@ describe('active context protection', () => {
       fixture.session.append('step/start', { turn: 4, step: 2 })
       const assistant = fixture.session.append('assistant/message', { turn: 4, step: 2, stream: [], message: createMessage({ role: 'assistant', source: { kind: 'model', provider: 'author', model: 'working' }, content: [{ type: 'tool-call', id: ToolCallId('second-compress'), name: 'context_compress', arguments: '{}' }] }) }, { surfaceOp: 'append' })
       const identity = { ...fixture.identity, step: 2, assistantSeq: assistant.seq, callId: ToolCallId('second-compress') }
-      const input = fixture.input([{ id: 'checkpoint', start: { seq: checkpoint, edge: 'before' }, end: { seq: checkpoint, edge: 'after' }, summary: 'replacement' }])
-      input.snapshot_ref.read_seq = fixture.session.seq - 1
+      const message = fixture.session.deriveEventMessage(fixture.session.eventAt(checkpoint)!)!
+      const block = message.content.find(block => block.type === 'text')!
+      if (block.type !== 'text') throw new Error('Checkpoint has no text')
+      const input = fixture.input([{ range: [{ text: block.text }, { text: block.text }], summary: 'replacement' }])
       await expect(preflightRegions(fixture.ctx, fixture.agent, identity, input, fixture.config)).rejects.toThrow(/protected/)
     } finally { await fixture.dispose() }
   })

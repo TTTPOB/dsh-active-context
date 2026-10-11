@@ -5,107 +5,118 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
-import { resolveSurfaceRange } from 'dsh-session-tools/context-map'
-import type {} from '@deepseek-ai/dsh-session-query'
+import type { SessionCaptureReader, SessionObservation } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import { assertCompleteToolPairs, protectedSeqs, type SurfaceCapture } from './protection.ts'
 import type { ActiveCompactionEngine } from './provider.ts'
-import type { AcpConfig, AcpState, BatchFacts, CompressInput, ExecutionIdentity, RegionFact, ResolvedRegion } from './types.ts'
+import type { AcpConfig, AcpState, BatchFacts, CompressInput, ExecutionIdentity, RegionFact, ResolvedRegion, TextEndpoint } from './types.ts'
 import type { ToolExecutionFailure, ToolRunContext } from '@deepseek-ai/dsh-tools'
 
-/** Sample the exact active Session and detach positional and interpreted values together. */
-async function capture(ctx: Context, agent: Agent): Promise<SurfaceCapture> {
-  return ctx.sessionQuery.captureSession(agent.id, (reader, observation) => {
-    if (reader !== agent.session) throw new Error('ACP: Query did not select the calling live Session')
-    const seqs = [...reader.surface.nodes]
-    const events = seqs.map(seq => {
-      const event = observation.events[seq]
-      if (event === undefined) throw new Error(`ACP: Surface node ${seq} is outside the observed Log`)
-      return event
-    })
-    return {
-      seqs, events,
-      messages: events.map(event => structuredClone(reader.deriveEventMessage(event))),
-      log: [...observation.events],
-    }
-  }, { projectionMode: 'none' })
+/** Detach the exact active Session while the Query reader is borrowed. */
+function sample(agent: Agent, reader: SessionCaptureReader, observation: SessionObservation): SurfaceCapture {
+  if (reader !== agent.session) throw new Error('ACP: Query did not select the calling live Session')
+  const seqs = [...reader.surface.nodes]
+  const events = seqs.map(seq => {
+    const event = observation.events[seq]
+    if (event === undefined) throw new Error(`ACP: Surface node ${seq} is outside the observed Log`)
+    return event
+  })
+  return {
+    seqs, events,
+    messages: events.map(event => structuredClone(reader.deriveEventMessage(event))),
+    log: [...observation.events],
+  }
 }
 
 /** Reject malformed author budgets before any native compaction transaction starts. */
-function validateInput(ctx: Context, input: CompressInput, config: AcpConfig, agent: Agent): void {
-  if (input.snapshot_ref.session_id !== agent.id) throw new Error('ACP: snapshot_ref must name the current Session')
-  if (!Number.isSafeInteger(input.snapshot_ref.read_seq) || input.snapshot_ref.read_seq < -1
-    || input.snapshot_ref.read_seq >= agent.session.seq) throw new Error('ACP: invalid snapshot read upper bound')
-  if (input.snapshot_ref.map_id.trim().length === 0) throw new Error('ACP: map_id must not be empty')
+function validateInput(ctx: Context, input: CompressInput, config: AcpConfig): void {
   if (input.regions.length === 0 || input.regions.length > config.maxRegions) {
     throw new Error(`ACP: submit 1-${config.maxRegions} non-adjacent regions`)
   }
-  const ids = new Set<string>()
   let bytes = 0
   let tokens = 0
-  for (const region of input.regions) {
-    if (!/^[A-Za-z0-9_-]{1,32}$/.test(region.id) || ids.has(region.id)) throw new Error('ACP: region IDs must be unique short identifiers')
-    ids.add(region.id)
-    if (region.summary.trim().length === 0) throw new Error(`ACP: summary ${region.id} must not be empty`)
+  input.regions.forEach((region, index) => {
+    if (region.range.length !== 2) throw new Error(`ACP: region ${index} requires exactly two text endpoints`)
+    region.range.forEach((endpoint, position) => {
+      if (endpoint.text.length === 0) throw new Error(`ACP: region ${index} endpoint ${position} text must not be empty`)
+    })
+    if (region.summary.trim().length === 0) throw new Error(`ACP: summary ${index} must not be empty`)
     bytes += Buffer.byteLength(region.summary, 'utf8')
     tokens += ctx.tokenMeter.estimateMessage(createUserMessage({ content: [{ type: 'text', text: region.summary }], source: { kind: 'user' } }))
-  }
+  })
   if (bytes > config.summaryMaxBytes || tokens > config.summaryMaxTokens) {
     throw new Error(`ACP: batch summaries exceed the total budget (${tokens} tokens, ${bytes} bytes)`)
   }
+}
+
+/** Scan every current node; multiple matching blocks within one node count once. */
+function resolveEndpoint(surface: SurfaceCapture, endpoint: TextEndpoint, regionIndex: number, position: number): number {
+  const matches: { index: number; role: string; text: string }[] = []
+  surface.messages.forEach((message, index) => {
+    if (message === null || (endpoint.role !== undefined && message.role !== endpoint.role)) return
+    const block = message.content.find(block => block.type === 'text' && block.text.includes(endpoint.text))
+    if (block?.type === 'text') matches.push({ index, role: message.role, text: block.text })
+  })
+  if (matches.length === 1) return matches[0]!.index
+  const bounded = (text: string) => Array.from(text).slice(0, 160).join('')
+  const clues = matches.slice(0, 4).map(match => ({ role: match.role, text: bounded(match.text) }))
+  throw new Error(`ACP: region ${regionIndex} endpoint ${position} ${matches.length === 0 ? 'has no match' : 'is ambiguous'} in current derived message text blocks (case-sensitive literal substring, no normalization). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, clues })}`)
 }
 
 /** Resolve all selections before starting any native transaction. */
 export async function preflightRegions(
   ctx: Context, agent: Agent, identity: ExecutionIdentity, input: CompressInput, config: AcpConfig,
 ): Promise<ResolvedRegion[]> {
-  validateInput(ctx, input, config, agent)
-  const surface = await capture(ctx, agent)
-  const protectedNodes = protectedSeqs(surface, identity, config)
-  const measurement = ctx.tokenMeter.measure(agent.session)
-  if (!isDeepStrictEqual(measurement.nodes.map(node => node.seq), surface.seqs)) throw new Error('ACP: Surface changed during preflight; refresh the map')
-  const resolved = input.regions.map((item, inputIndex): ResolvedRegion => {
-    const range = resolveSurfaceRange(surface.seqs, item)
-    const startIndex = range.start_index
-    const endIndex = range.end_index - 1
-    const seqs = surface.seqs.slice(startIndex, endIndex + 1)
-    const start = seqs[0]
-    const end = seqs.at(-1)
-    if (start === undefined || end === undefined) throw new Error(`ACP: region ${item.id} is empty`)
-    if (seqs.some(seq => seq > input.snapshot_ref.read_seq)) throw new Error(`ACP: region ${item.id} includes nodes created after the map; refresh it`)
-    if (seqs.some(seq => protectedNodes.has(seq))) throw new Error(`ACP: region ${item.id} contains protected context`)
-    const messages = surface.messages.slice(startIndex, endIndex + 1)
-    assertCompleteToolPairs(messages)
-    const measured = measurement.nodes.slice(startIndex, endIndex + 1)
-    return {
-      input: item, inputIndex, start, end, startIndex, endIndex, seqs,
-      events: surface.events.slice(startIndex, endIndex + 1), messages, measurement,
-      shadowedRouteTokens: measured.reduce((sum, node) => sum + node.tokens, 0),
-      shadowedHeuristicTokens: measured.reduce((sum, node) => sum + node.heuristicTokens, 0),
+  validateInput(ctx, input, config)
+  return ctx.sessionQuery.captureSession(agent.id, (reader, observation) => {
+    const surface = sample(agent, reader, observation)
+    const protectedNodes = protectedSeqs(surface, identity, config)
+    const measurement = ctx.tokenMeter.measure(agent.session)
+    if (!isDeepStrictEqual(measurement.nodes.map(node => node.seq), surface.seqs)) throw new Error('ACP: Surface changed during preflight; select current text again')
+    const resolved = input.regions.map((item, inputIndex): ResolvedRegion => {
+      const startIndex = resolveEndpoint(surface, item.range[0]!, inputIndex, 0)
+      const endIndex = resolveEndpoint(surface, item.range[1]!, inputIndex, 1)
+      if (endIndex < startIndex) throw new Error(`ACP: region ${inputIndex} endpoints are reversed`)
+      const seqs = surface.seqs.slice(startIndex, endIndex + 1)
+      const start = seqs[0]
+      const end = seqs.at(-1)
+      if (start === undefined || end === undefined) throw new Error(`ACP: region ${inputIndex} is empty`)
+      if (seqs.some(seq => protectedNodes.has(seq))) throw new Error(`ACP: region ${inputIndex} contains protected context`)
+      const messages = surface.messages.slice(startIndex, endIndex + 1)
+      assertCompleteToolPairs(messages)
+      const measured = measurement.nodes.slice(startIndex, endIndex + 1)
+      return {
+        input: item, inputIndex, start, end, startIndex, endIndex, seqs,
+        events: surface.events.slice(startIndex, endIndex + 1), messages, measurement,
+        shadowedRouteTokens: measured.reduce((sum, node) => sum + node.tokens, 0),
+        shadowedHeuristicTokens: measured.reduce((sum, node) => sum + node.heuristicTokens, 0),
+      }
+    })
+    const ordered = [...resolved].sort((a, b) => a.startIndex - b.startIndex)
+    for (let index = 1; index < ordered.length; index += 1) {
+      const previous = ordered[index - 1]!
+      const current = ordered[index]!
+      if (current.startIndex <= previous.endIndex + 1) throw new Error('ACP: regions overlap or are adjacent; select them again')
     }
-  })
-  const ordered = [...resolved].sort((a, b) => a.startIndex - b.startIndex)
-  for (let index = 1; index < ordered.length; index += 1) {
-    const previous = ordered[index - 1]!
-    const current = ordered[index]!
-    if (current.startIndex <= previous.endIndex + 1) throw new Error('ACP: regions overlap or are adjacent; select them again')
-  }
-  return resolved
+    return resolved
+  }, { projectionMode: 'none' })
 }
 
 /** Re-resolve each original node list after earlier native replacements. */
 async function revalidate(ctx: Context, agent: Agent, identity: ExecutionIdentity, region: ResolvedRegion, config: AcpConfig): Promise<void> {
-  const surface = await capture(ctx, agent)
-  const start = surface.seqs.indexOf(region.start)
-  const end = surface.seqs.indexOf(region.end)
-  if (start < 0 || end < start || !isDeepStrictEqual(surface.seqs.slice(start, end + 1), region.seqs)
-    || !isDeepStrictEqual(surface.events.slice(start, end + 1), region.events)
-    || !isDeepStrictEqual(surface.messages.slice(start, end + 1), region.messages)) {
-    throw new Error(`ACP: target ${region.input.id} changed since preflight; refresh the map`)
-  }
-  const protectedNodes = protectedSeqs(surface, identity, config)
-  if (region.seqs.some(seq => protectedNodes.has(seq))) throw new Error(`ACP: target ${region.input.id} is now protected`)
-  assertCompleteToolPairs(surface.messages.slice(start, end + 1))
+  await ctx.sessionQuery.captureSession(agent.id, (reader, observation) => {
+    const surface = sample(agent, reader, observation)
+    const start = surface.seqs.indexOf(region.start)
+    const end = surface.seqs.indexOf(region.end)
+    if (start < 0 || end < start || !isDeepStrictEqual(surface.seqs.slice(start, end + 1), region.seqs)
+      || !isDeepStrictEqual(surface.events.slice(start, end + 1), region.events)
+      || !isDeepStrictEqual(surface.messages.slice(start, end + 1), region.messages)) {
+      throw new Error(`ACP: target ${region.inputIndex} changed since preflight; select current text again`)
+    }
+    const protectedNodes = protectedSeqs(surface, identity, config)
+    if (region.seqs.some(seq => protectedNodes.has(seq))) throw new Error(`ACP: target ${region.inputIndex} is now protected`)
+    assertCompleteToolPairs(surface.messages.slice(start, end + 1))
+  }, { projectionMode: 'none' })
 }
 
 /** Reconcile native append evidence, including a replacement followed by a closing failure. */
@@ -125,7 +136,6 @@ function observeCommit(fact: RegionFact, emitted: readonly SessionEvent[]): bool
 export function renderBatchFacts(facts: BatchFacts, config: AcpConfig, finalError?: Readonly<ToolExecutionFailure>): string {
   const output = {
     status: facts.status,
-    map_id: facts.mapId,
     cleanup: finalError !== undefined ? 'retained' : facts.status === 'batch_success' ? 'pending_final_settlement' : 'not_eligible',
     final_error: finalError === undefined ? undefined : {
       name: finalError.error.info?.name,
@@ -136,10 +146,9 @@ export function renderBatchFacts(facts: BatchFacts, config: AcpConfig, finalErro
     execution_order: facts.executionOrder,
     stop_reason: facts.stopReason,
     regions: facts.regions.map(fact => ({
-      id: fact.id, input_index: fact.inputIndex, status: fact.status,
+      input_index: fact.inputIndex, status: fact.status,
       compaction_id: fact.compactionId, replacement_seq: fact.replacementSeq,
       node_count: fact.shadowedSeqs.length,
-      locator: { start: fact.shadowedSeqs[0], end: fact.shadowedSeqs.at(-1) },
       shadowed_route_tokens: fact.shadowedRouteTokens,
       shadowed_heuristic_tokens: fact.shadowedHeuristicTokens,
       replacement_route_tokens: fact.replacementRouteTokens,
@@ -177,9 +186,9 @@ export async function submitRegions(
   exec.signal.throwIfAborted()
   const regions = await preflightRegions(ctx, agent, identity, input, config)
   const facts: BatchFacts = {
-    status: 'all_failed', mapId: input.snapshot_ref.map_id, executionOrder: [],
+    status: 'all_failed', executionOrder: [],
     regions: regions.map(region => ({
-      id: region.input.id, inputIndex: region.inputIndex, status: 'not_attempted',
+      inputIndex: region.inputIndex, status: 'not_attempted',
       shadowedSeqs: region.seqs, shadowedRouteTokens: region.shadowedRouteTokens,
       shadowedHeuristicTokens: region.shadowedHeuristicTokens,
     })),
@@ -189,7 +198,7 @@ export async function submitRegions(
   const reservedSeq = SessionSeq(Number.MAX_SAFE_INTEGER)
   const reservedId = CompactionId('00000000-0000-0000-0000-000000000000')
   const reserve: BatchFacts = { ...facts, status: 'batch_success', stopReason: 'x',
-    executionOrder: regions.map(region => region.input.id),
+    executionOrder: regions.map(region => region.inputIndex),
     regions: facts.regions.map(fact => ({
       ...fact, status: 'committed_with_error', compactionId: reservedId,
       replacementSeq: reservedSeq, error: 'x',
@@ -217,7 +226,7 @@ export async function submitRegions(
       exec.signal.throwIfAborted()
       await revalidate(ctx, agent, identity, region, config)
       exec.signal.throwIfAborted()
-      facts.executionOrder.push(region.input.id)
+      facts.executionOrder.push(region.inputIndex)
       fact.result = await engine.compactPrewritten(region, agent, identity, exec.signal)
       fact.compactionId = fact.result.compactionId
       observeCommit(fact, emitted)

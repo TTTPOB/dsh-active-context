@@ -7,8 +7,8 @@ import { providerFixture } from './provider-fixture.ts'
 
 describe('active region batches', () => {
   it('preserves final cancellation details and committed metering facts in one bounded result', () => {
-    const rendered = renderBatchFacts({ status: 'partial', mapId: 'fixture-map', executionOrder: ['tail'], regions: [{
-      id: 'tail', inputIndex: 0, status: 'committed_with_error', compactionId: CompactionId('native-id'),
+    const rendered = renderBatchFacts({ status: 'partial', executionOrder: [0], regions: [{
+      inputIndex: 0, status: 'committed_with_error', compactionId: CompactionId('native-id'),
       replacementSeq: SessionSeq(10), shadowedSeqs: [SessionSeq(2)],
       shadowedRouteTokens: 200, shadowedHeuristicTokens: 180,
       replacementRouteTokens: 50, replacementHeuristicTokens: 45,
@@ -28,8 +28,8 @@ describe('active region batches', () => {
       const { result, facts } = await fixture.submit()
       expect(result.isError).toBe(false)
       expect(facts.status).toBe('batch_success')
-      expect(facts.execution_order).toEqual(['tail', 'head'])
-      expect(facts.regions.map((item: { id: string }) => item.id)).toEqual(['head', 'tail'])
+      expect(facts.execution_order).toEqual([1, 0])
+      expect(facts.regions.map((item: { input_index: number }) => item.input_index)).toEqual([0, 1])
       expect(facts.regions.every((item: { route_token_reduction: number }) => item.route_token_reduction > 0)).toBe(true)
       expect(fixture.session.surface.nodes).toContain(fixture.old[1])
       expect(fixture.session.surface.nodes).not.toContain(fixture.old[0])
@@ -42,8 +42,7 @@ describe('active region batches', () => {
     const fixture = await providerFixture()
     try {
       const before = fixture.session.seq
-      const protectedBatch = fixture.input([{ ...fixture.input().regions[0]!, id: 'task', start: { seq: fixture.latestTask, edge: 'before' }, end: { seq: fixture.latestTask, edge: 'after' } }])
-      protectedBatch.snapshot_ref.read_seq = before - 1
+      const protectedBatch = fixture.input([{ ...fixture.input().regions[0]!, range: [{ text: 'current task' }, { text: 'current task' }] }])
       await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, protectedBatch, fixture.config)).rejects.toThrow(/protected/)
       await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, fixture.input(), { ...fixture.config, summaryMaxBytes: 20 })).rejects.toThrow(/total budget/)
       expect(fixture.session.seq).toBe(before)
@@ -55,7 +54,7 @@ describe('active region batches', () => {
     try {
       const original = fixture.engine.compactPrewritten.bind(fixture.engine)
       vi.spyOn(fixture.engine, 'compactPrewritten').mockImplementation(async (region, ...args) => {
-        if (region.input.id === 'head') throw new Error('head native failure')
+        if (region.inputIndex === 0) throw new Error('head native failure')
         return original(region, ...args)
       })
       const { facts } = await fixture.submit()
@@ -86,7 +85,7 @@ describe('active region batches', () => {
       })
       const { facts } = await fixture.submit()
       expect(facts.status).toBe('partial')
-      expect(facts.execution_order).toEqual(['tail'])
+      expect(facts.execution_order).toEqual([1])
       expect(facts.regions[0].error).toMatch(/changed since preflight/)
       expect(fixture.session.surface.nodes).toContain(fixture.old[0])
     } finally { await fixture.dispose() }
@@ -102,7 +101,7 @@ describe('active region batches', () => {
       })
       const { facts } = await fixture.submit()
       expect(facts.status).toBe('partial')
-      expect(facts.execution_order).toEqual(['tail'])
+      expect(facts.execution_order).toEqual([1])
       expect(facts.regions.map((item: { status: string }) => item.status)).toEqual(['not_attempted', 'committed_with_error'])
       expect(facts.regions[1].replacement_seq).toBeTypeOf('number')
       expect(facts.regions[1].compaction_id).toBeTypeOf('string')

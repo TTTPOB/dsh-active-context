@@ -27,8 +27,6 @@ export const AcpConfigSchema: z<Partial<SchemaAcpConfig>, SchemaAcpConfig> = z.o
   confirmationMaxIds: positive().default(4),
   reminderMaxTokens: positive().default(1200),
   reminderMaxBytes: positive().default(6000),
-  reminderMaxRegions: z.number().step(1).min(0).default(3),
-  reminderPreviewChars: z.number().step(1).min(0).default(160),
   taskSourceKinds: z.array(z.string()).default(['user', 'agent-message', 'goal', 'schedule']),
   pressureRoutes: z.array(route).default([]),
 })

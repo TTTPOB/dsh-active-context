@@ -19,13 +19,11 @@ const rows = [
   ['workspace'], ['session-query-sqlite', { path: ':memory:', openAt: 'never' }],
   ['agent-loop', { agents: [] }],
 ].map(([name, config]) => ({ id: name, name: '@deepseek-ai/dsh-' + name, ...(config ? { config } : {}) }))
-rows.push({ id: 'session-tools', name: 'dsh-session-tools' }, { id: 'active-context', name: 'dsh-active-context', config: { basic: { auto: false } } })
+rows.push({ id: 'active-context', name: 'dsh-active-context', config: { basic: { auto: false } } })
 const configPath = join(profile, 'cordis.yml')
 const consumerPath = join(profile, 'consumer.mjs')
 await writeFile(consumerPath, `export * as acp from 'dsh-active-context'
-export * as sessionTools from 'dsh-session-tools'
-export * as map from 'dsh-session-tools/context-map'
-export const entries = { 'dsh-active-context': import.meta.resolve('dsh-active-context'), 'dsh-session-tools': import.meta.resolve('dsh-session-tools') }
+export const entries = { 'dsh-active-context': import.meta.resolve('dsh-active-context') }
 `)
 await writeFile(configPath, JSON.stringify(rows) + '\n')
 const loaded = boot.loadProfileDirectory('ACP delivery', profile, anchor)
@@ -36,7 +34,7 @@ let consumer
 try {
   // Test-local grants are limited to these explicit exact package/runtime combinations.
   const accepted = {
-    'dsh-active-context': '0.1.0', 'dsh-session-tools': '0.2.0',
+    'dsh-active-context': '0.1.0',
     '@deepseek-ai/dsh-session-query': '0.1.7-rc.2-fork4',
     '@deepseek-ai/dsh-session-query-sqlite': '0.1.7-rc.2-fork6',
   }
@@ -65,7 +63,7 @@ try {
     // ESM-only exports must be consumed with import conditions, not require.resolve.
     consumer = await import(pathToFileURL(consumerPath).href)
   })
-  for (const name of ['dsh-active-context', 'dsh-session-tools']) {
+  for (const name of ['dsh-active-context']) {
     const entry = await realpath(fileURLToPath(consumer.entries[name]))
     const directory = join(profile, 'node_modules', name)
     const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'))
@@ -75,9 +73,7 @@ try {
       const actual = ctx.pluginPackages.packageOf(peer, pathToFileURL(entry).href)
       assert.ok(actual, `${name} resolves ${peer}`)
       assert.equal(actual.version, manifest.peerDependencies[peer], 'exact peer version ' + peer)
-      const expected = peer === 'dsh-session-tools'
-        ? ctx.pluginPackages.packageOf(peer, pathToFileURL(join(profile, 'package.json')).href)
-        : resolution.entries.find(item => item.name === peer && item.scope === 'installation')
+      const expected = resolution.entries.find(item => item.name === peer && item.scope === 'installation')
       assert.ok(expected, 'Host/profile provides ' + peer)
       if (peer === '@deepseek-ai/schemastery') assert.equal(actual.version, expected.version)
       else assert.equal(await realpath(actual.dir), await realpath(expected.packageDir ?? expected.dir), `shared identity ${name} -> ${peer}`)
@@ -92,7 +88,6 @@ try {
   assert.throws(() => schema.resolve({ acp: { maxRegions: 1 } }, acp.Config, {}))
   // Cordis 4.0.4 publishes FiberState as an erased const enum; ACTIVE is 2.
   for (const row of ctx.loader.entries()) if (!row.disabled) assert.equal(row.fiber?.state, 2, 'active Loader row ' + row.options.name)
-  const { buildContextMap } = consumer.map
   let input
   let index = 0
   const requests = []
@@ -130,20 +125,11 @@ try {
   await turn('Historical alpha ' + 'old detail A '.repeat(120))
   await turn('KEEP MIDDLE: public command must remain unchanged.')
   await turn('Historical beta ' + 'old detail B '.repeat(120))
-  assert.equal(typeof buildContextMap, 'function', 'public context-map entry')
-  const mapped = await ctx.tools.execute({
-    name: 'session_context_map', arguments: { view: 'messages', limit: 100, metering: 'require' },
-    agent, signal: new AbortController().signal, callId: ToolCallId('artifact-map'),
-  })
-  assert.equal(mapped.isError, false, JSON.stringify(mapped))
-  const map = JSON.parse(mapped.content.find(block => block.type === 'text').text)
-  assert.deepEqual(map.nodes.map(node => node.seq), agent.session.surface.nodes)
-  assert.deepEqual(map.nodes.map(node => node.estimated_tokens), ctx.tokenMeter.measure(agent.session).nodes.map(node => node.tokens))
-  input = { snapshot_ref: map.snapshot_ref, regions: [1, 3].map((turn, i) => {
-    const nodes = map.nodes.filter(node => node.navigation.turn === turn && node.role !== 'system')
-    assert.ok(nodes.length > 0)
-    return { id: i === 0 ? 'alpha' : 'beta', start: nodes[0].locator.start, end: nodes.at(-1).locator.end, summary: summaries[i] }
-  }) }
+  input = { regions: [0, 2].map((index, i) => ({
+    range: [{ text: index === 0 ? 'Historical alpha ' : 'Historical beta ', role: 'user' },
+      { text: 'Historical work complete ' + index, role: 'assistant' }],
+    summary: summaries[i],
+  })) }
   await turn('Complete the task after compressing only the selected history.')
   assert.equal(requests.length, 5)
   const events = agent.session.snapshotEvents()
@@ -156,7 +142,7 @@ try {
   assert.notEqual(result.data.message.isError, true)
   const facts = JSON.parse(result.data.message.content.find(block => block.type === 'text').text)
   assert.equal(facts.status, 'batch_success')
-  assert.deepEqual(facts.execution_order, ['beta', 'alpha'])
+  assert.deepEqual(facts.execution_order, [1, 0])
   assert.ok(!agent.session.surface.nodes.includes(result.seq))
   const replay = Session.create(SessionId('acp-artifact-replay'), structuredClone(events))
   assert.deepEqual(replay.deriveMessages(), agent.session.deriveMessages())
@@ -168,7 +154,7 @@ try {
   assert.equal(ctx.get('compaction'), undefined)
   assert.equal(ctx.tools.get('context_compress'), undefined)
   console.log(JSON.stringify({
-    sharedPeers: 'Host Cordis/DSH identity; profile map; same-version Schemastery',
+    sharedPeers: 'Host Cordis/DSH identity; same-version Schemastery',
     loader: 'all rows active, unique ACP provider, Host schema validation',
     behavior: 'two nonadjacent commits, middle preserved, next-request pair cleanup, replay, provider disposal',
     compatibility, testLocalExemptionsOnly: true,

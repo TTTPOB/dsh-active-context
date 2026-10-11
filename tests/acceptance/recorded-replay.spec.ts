@@ -11,8 +11,7 @@ import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
 import type { CompressInput } from '../../src/types.ts'
 import { loadActiveContext } from './composition.ts'
-import { mapOptions, selection, summaries } from './compression-fixture.ts'
-import { buildContextMap } from '../../../dsh-session-tools/src/context-map.ts'
+import { selection, summaries } from './compression-fixture.ts'
 import { createLoopFixture, HISTORY, runTurn, seedHistory } from './fixtures.ts'
 
 const task = 'Finish the old analyses while preserving the middle constraint.'
@@ -20,10 +19,11 @@ function jsonl(session: Session): string {
   return JSON.stringify(toHeaderLine(session.header, session.inheritedEventCount)) + '\n' + eventLines(session.snapshotEvents()) + '\n'
 }
 
-it('replays recorded ACP model streams using existing llm-replay and compares complete logs using session-snapshot', async () => {
-  const scratch = fileURLToPath(new URL('./.cache/', import.meta.url))
+it('replays recorded ACP model streams using existing llm-replay and compares complete logs using session-snapshot', async ({ onTestFinished }) => {
+  const scratch = fileURLToPath(new URL('../../.scratch/text-anchors/tests/', import.meta.url))
   await mkdir(scratch, { recursive: true })
   const root = await mkdtemp(join(scratch, 'recorded-snapshot-'))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
   let input: CompressInput | undefined
   let replay: Awaited<ReturnType<typeof createLoopFixture>> | undefined
   let handle: ReplayHandle | undefined
@@ -50,9 +50,7 @@ it('replays recorded ACP model streams using existing llm-replay and compares co
   })
   try {
     await seedHistory(producer.agent)
-    input = selection(await producer.ctx.sessionQuery.captureSession(producer.agent.id, (reader, observation) => buildContextMap(
-      reader, observation, producer.ctx.tokenMeter.measure(reader as Session), { view: 'messages', limit: 100 }, mapOptions,
-    ), { projectionMode: 'all' }))
+    input = selection(producer.agent.session)
     await runTurn(producer.agent, task)
     expect(producer.adapter.requests).toHaveLength(5)
     const recorded = jsonl(producer.agent.session)
@@ -79,6 +77,5 @@ it('replays recorded ACP model streams using existing llm-replay and compares co
     handle?.dispose()
     await replay?.ctx.fiber.dispose()
     await producer.ctx.fiber.dispose()
-    await rm(root, { recursive: true, force: true })
   }
 })

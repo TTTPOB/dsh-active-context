@@ -35,13 +35,12 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
       expect(agent.session.surface.nodes).toContain(carrier.seq)
       expect(notices(agent.session)).toHaveLength(1)
       expect(body(notices(agent.session)[0]!.data)).not.toContain('TASK-CARRIER')
-      expect(body(notices(agent.session)[0]!.data)).not.toContain('snapshot_ref')
     } finally { await ctx.fiber.dispose() }
   })
 
   it('triggers at exact S, does not rearm at exact R, and rearms strictly below R using real measurements', async () => {
     const route = { provider: 'reminder', model: 'working', nudgeAtTokens: 1000, resetBelowTokens: 200 }
-    const fixture = await reminderFixture(configFor({ pressureRoutes: [route], reminderMaxRegions: 0 }))
+    const fixture = await reminderFixture(configFor({ pressureRoutes: [route] }))
     const { ctx, agent } = fixture
     try {
       await fixture.run(largeTask)
@@ -67,7 +66,7 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
   })
 
   it('rechecks actual pruned tool results before notifying and avoids an unnecessary summary request', async () => {
-    const fixture = await reminderFixture(configFor({ reminderMaxRegions: 0 }))
+    const fixture = await reminderFixture(configFor())
     const { ctx, adapter, agent } = fixture
     try {
       adapter.capacity = 4000
@@ -138,9 +137,9 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
     }
   })
 
-  it('bounds the complete user Message including framing, metadata and multibyte previews, then falls back to short notice', async () => {
+  it('bounds the complete user Message including framing and metadata, then falls back to short notice', async () => {
     for (const budget of [{ reminderMaxTokens: 1200, reminderMaxBytes: 6000 }, { reminderMaxTokens: 60, reminderMaxBytes: 500 }]) {
-      const config = configFor({ ...budget, reminderPreviewChars: 10_000 })
+      const config = configFor(budget)
       const fixture = await reminderFixture(config)
       try {
         fixture.adapter.reply = () => [{ type: 'text', text: '旧结论😀'.repeat(600) }]
@@ -151,13 +150,12 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
         expect(Buffer.byteLength(JSON.stringify(message), 'utf8')).toBeLessThanOrEqual(config.reminderMaxBytes)
         expect(body(message)).toContain('宿主上下文维护提醒')
         expect(body(message)).toContain('estimated')
-        if (budget.reminderMaxBytes === 500) expect(body(message)).not.toContain('snapshot_ref')
-        else expect(body(message)).toContain('snapshot_ref')
+        if (budget.reminderMaxBytes === 6000) expect(body(message)).toContain('独特原文端点')
       } finally { await fixture.ctx.fiber.dispose() }
     }
   })
 
-  it('offers completed old messages after the latest task in a long Turn, without suggesting task or instructions', async () => {
+  it('offers short action advice in a long Turn without copying history or instructions', async () => {
     const fixture = await reminderFixture(configFor({ pressureRoutes: [
       { provider: 'reminder', model: 'working', nudgeAtTokens: 1800, resetBelowTokens: 200 },
     ] }))
@@ -178,17 +176,16 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
       expect(adapter.requests).toHaveLength(2)
       expect(notices(agent.session)).toHaveLength(1)
       const message = notices(agent.session)[0]!.data
-      expect(body(message)).toContain('snapshot_ref')
-      expect(body(message)).toContain('Completed old analysis')
-      expect(body(message)).toContain('session_event_read')
-      expect(body(message)).toContain('session_context_map')
+      expect(body(message)).toContain('独特原文端点')
+      expect(body(message)).toContain('context_compress')
+      expect(body(message)).not.toContain('Completed old analysis')
       expect(body(message)).not.toContain('LIVE INSTRUCTIONS')
       expect(body(message)).not.toContain('Historical completed work')
     } finally { await ctx.fiber.dispose() }
   })
 
   it('keeps native prune → remeasure → ordinary summary active after a committed reminder is ignored', async () => {
-    const fixture = await reminderFixture(configFor({ reminderMaxRegions: 0 }))
+    const fixture = await reminderFixture(configFor())
     const { ctx, adapter, agent } = fixture
     const trace: string[] = []
     try {

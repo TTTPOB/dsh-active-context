@@ -2,13 +2,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { boundContextSummary, createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
-import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
-import type { Session, SessionSeq as SessionSeqType } from '@deepseek-ai/dsh-session'
+import { SessionSeq } from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
-import { buildContextMap } from 'dsh-session-tools/context-map'
-import type { ContextMapNode, ContextMapOutput } from 'dsh-session-tools/context-map'
-import type { AcpConfig, PreStepFrame, ReminderBasicConfig, ReminderHooks } from './types.ts'
-import { latestTaskCarriers } from './protection.ts'
+import type { AcpConfig, ReminderBasicConfig, ReminderHooks } from './types.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -44,53 +41,7 @@ function fits(ctx: Context, config: AcpConfig, message: UserMessage): boolean {
     && Buffer.byteLength(JSON.stringify(message), 'utf8') <= config.reminderMaxBytes
 }
 
-function standaloneCandidate(session: Session, seq: SessionSeqType, taskCarriers: ReadonlySet<SessionSeqType>): boolean {
-  const message = session.deriveEventMessage(session.eventAt(seq)!)
-  return !taskCarriers.has(seq) && message !== null
-    && message.role !== 'system' && message.role !== 'developer' && message.role !== 'tool'
-    && (!('form' in message.source) || message.source.form !== 'instructions')
-    && !message.content.some(block => block.type === 'tool-call')
-}
-
-/** Select only old standalone messages; paired tools and live instructions are never suggested. */
-function suggestedNodes(session: Session, map: ContextMapOutput, frame: PreStepFrame, config: AcpConfig, taskCarriers: ReadonlySet<SessionSeqType>): ContextMapNode[] {
-  const selected: ContextMapNode[] = []
-  for (const node of map.nodes) {
-    if (selected.length >= config.reminderMaxRegions) break
-    if ((node.navigation.turn === frame.turn && node.navigation.step === frame.step)
-      || selected.at(-1)?.surface_index === node.surface_index - 1
-      || !standaloneCandidate(session, SessionSeq(node.seq), taskCarriers)) continue
-    selected.push(node)
-  }
-  return selected
-}
-
-/** Sample the current Session and the shared map in one synchronous read interval. */
-function mapForNotice(ctx: Context, frame: PreStepFrame, config: AcpConfig, measurement: TokenMeasurement, taskCarriers: ReadonlySet<SessionSeqType>): ContextMapOutput {
-  const session = frame.agent.session
-  const cut = session.seq
-  const projections = ctx.get('sessionProjections')?.snapshot(session, ['contextPressure', 'contextBreakdown'])
-  const limit = Math.max(1, config.reminderMaxRegions * 2)
-  const first = session.surface.nodes.find(seq => standaloneCandidate(session, seq, taskCarriers))
-  return buildContextMap(session, {
-    source: 'live',
-    cursor: cut === 0 ? -1 : SessionSeq(cut - 1),
-    readEvents: (from, to) => session.snapshotEvents(from, SessionLogOffset(Math.min(to, cut))),
-    ...projections === undefined ? {} : { projections },
-  }, measurement, {
-    view: 'messages', metering: 'require', limit,
-    ...first === undefined ? {} : {
-      window: { anchor: { seq: first, edge: 'before' }, side: 'after' },
-    },
-  }, {
-    mapPageSize: limit, mapMaxPageSize: limit, mapMaxSpans: config.reminderMaxRegions,
-    previewChars: config.reminderPreviewChars,
-    // The emitted notice, including framing and metadata, is bounded below.
-    outputBytes: Number.MAX_SAFE_INTEGER,
-  })
-}
-
-function notice(ctx: Context, frame: PreStepFrame, config: AcpConfig, measurement: TokenMeasurement, nativeAt: number): UserMessage {
+function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, nativeAt: number): UserMessage {
   const basis = pressureBasis(measurement)
   const short = createUserMessage({
     content: [{ type: 'text', text: shortText(measurement.totalTokens, basis) }],
@@ -101,29 +52,8 @@ function notice(ctx: Context, frame: PreStepFrame, config: AcpConfig, measuremen
     + `计量依据：${basis}；baseline=${measurement.baseline.tokens}，delta=${measurement.surfaceDeltaTokens}。`
   const withText = (text: string) => freezeMessage({ ...short, content: [{ type: 'text' as const, text }] })
   const pressureOnly = withText(heading)
-  if (config.reminderMaxRegions === 0) return fits(ctx, config, pressureOnly) ? pressureOnly : short
-  const taskCarriers = latestTaskCarriers(frame.agent.session.snapshotEvents(), config)
-  const map = mapForNotice(ctx, frame, config, measurement, taskCarriers)
-  const nodes = suggestedNodes(frame.agent.session, map, frame, config, taskCarriers)
-  if (nodes.length === 0) return fits(ctx, config, pressureOnly) ? pressureOnly : short
-  const render = (count: number, previewChars: number): UserMessage => withText(heading
-    + `\n可先回读以下旧消息，准备摘要；保留当前任务与存活指令。\nsnapshot_ref=${JSON.stringify(map.snapshot_ref)}`
-    + nodes.slice(0, count).map(node => `\n${JSON.stringify({
-      source: node.source, locator: node.locator, estimated_tokens: node.estimated_tokens,
-      read: { session_id: map.snapshot_ref.session_id, seq: node.seq },
-      ...previewChars === 0 ? {} : { preview: Array.from(node.preview).slice(0, previewChars).join('') },
-    })}`).join('')
-    + '\n回读入口：session_event_read；更多区间：session_context_map。')
-  // Shrink previews first, then intervals, then keep the pressure-only notice.
-  for (let chars = config.reminderPreviewChars; chars > 0; chars = Math.floor(chars / 2)) {
-    const candidate = render(nodes.length, chars)
-    if (fits(ctx, config, candidate)) return candidate
-  }
-  for (let count = nodes.length; count > 0; count--) {
-    const candidate = render(count, 0)
-    if (fits(ctx, config, candidate)) return candidate
-  }
-  return fits(ctx, config, pressureOnly) ? pressureOnly : short
+  const advice = withText(heading + '\n选择已处理的旧内容，用独特原文端点提交 context_compress 摘要；必要时先用历史工具回读。保留当前任务与存活指令。')
+  return fits(ctx, config, advice) ? advice : fits(ctx, config, pressureOnly) ? pressureOnly : short
 }
 
 /**
@@ -204,7 +134,7 @@ export function installReminder(ctx: Context, config: AcpConfig, basic: Reminder
         episodes.set(session, episode)
       }
       if (episode.reminded || measurement.totalTokens < route.nudgeAtTokens) return decision
-      const message = notice(ctx, frame, config, measurement, nativeAt)
+      const message = notice(ctx, config, measurement, nativeAt)
       episode.candidate = message.id
       return { ...decision, messages: [...decision.messages, message] }
     },

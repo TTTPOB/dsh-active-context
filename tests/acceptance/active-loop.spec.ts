@@ -4,12 +4,11 @@ import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { buildContextMap } from '../../../dsh-session-tools/src/context-map.ts'
 import { loadActiveContext } from './composition.ts'
 import type { CompressInput } from '../../src/types.ts'
 import { createLoopFixture, HISTORY, runTurn, seedHistory } from './fixtures.ts'
 
-import { mapOptions, selection, summaries } from './compression-fixture.ts'
+import { selection, summaries } from './compression-fixture.ts'
 
 it('commits two nonadjacent native regions, hides only their finalized successful pair, then continues real tool work and replays', async () => {
   let input: CompressInput | undefined
@@ -52,17 +51,14 @@ it('commits two nonadjacent native regions, hides only their finalized successfu
       },
     }))
     await seedHistory(agent)
-    const map = await ctx.sessionQuery.captureSession(agent.id, (reader, observation) => buildContextMap(
-      reader, observation, ctx.tokenMeter.measure(reader as Session), { view: 'messages', limit: 100 }, mapOptions,
-    ), { projectionMode: 'all' })
-    input = selection(map)
+    input = selection(agent.session)
     await runTurn(agent, 'Complete alpha and beta verification using the preserved constraints.')
     expect(adapter.requests).toHaveLength(6)
     expect(work).toEqual(['alpha and beta verified'])
     const events = agent.session.snapshotEvents()
     const native = events.filter(event => event.type === 'compaction/summary')
     expect(native).toHaveLength(2)
-    expect(native.map(event => event.data.shadowedSeqs[0])).toEqual([input.regions[1]!.start.seq, input.regions[0]!.start.seq])
+    expect(native.map(event => JSON.stringify(agent.session.eventAt(event.data.shadowedSeqs[0]!)))).toEqual([expect.stringContaining('Completed analysis B:'), expect.stringContaining('Completed analysis A:')])
     expect(native.every(event => event.data.provider === 'acceptance' && event.data.model === 'scripted')).toBe(true)
     const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'compress-two')
     if (result?.type !== 'tool/result') throw new Error('Final durable compression result missing')
@@ -71,8 +67,8 @@ it('commits two nonadjacent native regions, hides only their finalized successfu
     if (text?.type !== 'text') throw new Error('Final compression content missing')
     const facts = JSON.parse(text.text)
     expect(facts.status).toBe('batch_success')
-    expect(facts.execution_order).toEqual(['older-b', 'older-a'])
-    expect(facts.regions.map((region: { id: string }) => region.id)).toEqual(['older-a', 'older-b'])
+    expect(facts.execution_order).toEqual([1, 0])
+    expect(facts.regions.map((region: { input_index: number }) => region.input_index)).toEqual([0, 1])
     expect(facts.regions.every((region: { route_token_reduction?: number }) => typeof region.route_token_reduction === 'number' && region.route_token_reduction > 0)).toBe(true)
     const maintenance = events.filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')
     expect(maintenance).toHaveLength(1)

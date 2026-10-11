@@ -19,9 +19,9 @@ export function call(id = 'compress-1', name = 'context_compress'): ToolCallBloc
 
 export function facts(status: BatchFacts['status'] = 'batch_success'): BatchFacts {
   return {
-    status, mapId: 'sample-map', executionOrder: ['older-b', 'older-a'],
+    status, executionOrder: [1, 0],
     regions: [0, 1].map(index => ({
-      id: index === 0 ? 'older-a' : 'older-b', inputIndex: index,
+      inputIndex: index,
       status: status === 'batch_success' || index === 0 ? 'committed' : 'not_attempted',
       compactionId: CompactionId(`compact-${index}`), replacementSeq: SessionSeq(10 + index),
       shadowedSeqs: [SessionSeq(index + 1)], shadowedRouteTokens: 100, shadowedHeuristicTokens: 100,

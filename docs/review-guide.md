@@ -1,70 +1,40 @@
-# ACP 行为核对与验收指南
+# ACP 行为核对
 
-本文供实现者和独立审查者核对 ACP 的行为与验证方法。日常使用流程见 [README](<../README.md>)；打包及干净 profile 验收见[成品交付指南](<delivery.md>)。各 ADR 记录设计行为与取舍。
+本文说明 ACP 的行为边界与验证入口。日常接口、默认值与运行条件见 [README](<../README.md>)，打包后验证见[交付指南](<delivery.md>)。定位规则以 [ADR 0003](<adr/0003-text-anchored-compaction.md>)为准；提交和提醒的生命周期沿用原 ADR 中未被替代的部分。
 
-## 职责与设计入口
+## 当前正文选区
 
-| 组件 | 负责的行为 | 设计记录 |
-|---|---|---|
-| session-tools | 当前 Surface 的有界概览、节点窗口、定位与同源计量 | [地图 ADR 0004](<../../dsh-session-tools/docs/adr/0004-context-map-and-metering.md>) |
-| Query | live/cold 源解析、同步只读采样、读取上界及租约 | [同步采样决策](<../../deepseek-harness/docs/subsystems/session-query.zh.md#synchronous-session-sampling>) |
-| ACP 提交 | 目标保护、多区间执行、独立调用准入、最终结算及工具对清理 | [ADR 0001](<adr/0001-active-compaction-submission.md>) |
-| ACP 提醒 | 原生压力处理后的提醒、阈值、整条消息预算及高压期去重 | [ADR 0002](<adr/0002-pressure-notices.md>) |
+`context_compress` 在本次调用内通过 Query `captureSession` 同步读取当前调用会话的 Surface、派生消息、事件和计量。borrowed reader 只在 callback 内使用，执行目标以分离后的完整节点资料固定。每个端点分别扫描全部当前派生 text block；匹配按节点合并，不能截断扫描后冒充唯一。
 
-字段与预算在各自权威记录维护。
+两个端点包含完整节点，可以位于同一节点；顺序以 Surface 位置解释，不以内部 seq 排序。工具结果正文可以匹配，但仍须完整选择调用与结果；宿主不自动扩界。缺失或歧义诊断只含有界原文线索与 role，供模型重新选词。普通历史搜索仍是索引 FTS，不承担字面选区，也不以日志扫描补偿索引失败。
 
-## 核对使用行为
+整体预检固定全部目标后，每次执行前重验原有节点的存活、顺序、事件、派生内容、保护与配对。目标变化则停止，不重新匹配同一句话后继续。普通尾部追加或选区外变化不引入全局 freshness 门槛，单项原生事务仍执行自己的校验。
 
-### 1. 地图与回读
+## 提交、结算与清理
 
-`session_context_map` 每次采样当前 Surface，返回有界概览和当前节点窗口。窗口查询重新采样；anchor 已被替换时要求重新定位。节点位置按 Surface 顺序解释，不能按 seq 大小推断连续区间。
+一条独立 native/both 调用可提交多个非相邻区间。全部目标、摘要预算和调用身份先预检；随后从尾到头逐项提交。首个执行失败或目标变化停止，已提交项不回滚。部分成功、取消或 replacement 写入后的错误保留实际提交事实，结果按输入索引关联，并列出实际尝试顺序。
 
-地图返回的 `snapshot_ref` 包含 `session_id`、包含上界事件的 `read_seq` 和诊断用 `map_id`。回读节点时使用节点自己的 `seq/read_seq`，而不是快照读取上界。预览来自 Session 消息解释，节点计量来自 token-meter 的原事件折叠；二者按 seq 对齐，但所依据的文本可能不同。
+保护当前 system/developer、当前 Step、全部存活 instructions，以及最近任务输入和承载它的存活 checkpoint。准入 guard 根据正常落档的 assistant 身份及实际 tool-call blocks 校验独立调用，混合批次、重复调用、缺失身份和 PTC 在压缩事务前拒绝；普通兄弟工具仍按原生调度执行。
 
-`getContextMap` 在采样前检查调用方 scope，并在同步回调中重新核对。纯函数 `buildContextMap` 只构造 DTO，授权及同次采样由调用方负责。地图不保存跨调用快照缓存；Query 的 prepared Session 缓存仍按源版本和准备模式管理。首次 cold 准备和计量可能有全量成本，缩小窗口主要减少输出。
+工具 body 完成不等于最终成功。只有全批成功、最终落档结果正常，且调用与结果仍是精确相邻存活节点时，下一 Step 才清理工具对。清理前重启丢弃内存候选、留下原消息；已经写入的替换由 Log 回放。短确认附必要压缩记录回读入口，原作者、参数、结果及事务保留在 Log。
 
-### 2. 摘要提交与失败处理
+## 压力提醒与原生兜底
 
-核对一次独立 native/both `context_compress` 调用能提交至少两个非相邻区间，并保留中间内容。整体预检应先于任何事务，涵盖目标存活、工具配对、保护规则、摘要预算和调用身份。
+每次正常请求依次执行：成功工具对清理 → 原生压力处理 → ACP 重测 → 本次提醒。默认 `pressureRoutes: []` 不启用提前提醒。显式启用路由须满足 `R < S < H`；整条提醒含消息包装、压力与计量依据及短行动建议，预算不足时只保留短压力信息。
 
-逐项执行从 Surface 尾部向前进行；目标发生变化或首个执行失败时停止，已提交项不回滚。部分成功、取消及 replacement 写入后的错误必须保留真实提交事实。模型据结果刷新地图，只重试失败或未执行项。
+每段持续高压只提醒一次，实际提醒落档才消耗资格，实时计量 `T < R` 后复位。reload/resume/HMR 后当前低于 R 直接复位，否则从当前 Session 原始 Log 一次扫描恢复已提醒状态。正常步骤使用内存状态，不写 reset 事件或重建历史压力。降压再升高、第二条提醒落档前恰好重启时，可能沿用旧的已提醒状态，直到再次测得 `T < R`。
 
-保护范围与摘要保留要求见 ADR 0001。最近任务输入的保护包括承载该输入的存活 checkpoint；原生压缩不能使该保护丢失。宿主检查结构和保护规则，摘要能否支持后续任务需要连续工作评测。
+## 源码验证入口
 
-### 3. 准入、结算与清理
-
-压缩调用必须独立于其他工具和任务正文。混合批次、重复调用、缺失身份或 PTC 调用应在压缩事务前拒绝；普通兄弟工具仍按原生调度执行。
-
-工具 body 完成不等于最终成功。只有全批成功、最终落档结果正常，且调用与结果仍是精确相邻存活节点时，下一 Step 才清理工具对。错误、部分成功、取消或匹配失败保留原消息。清理前重启不恢复内存候选；已写入的替换由 Log 回放。
-
-### 4. 提前提醒与原生兜底
-
-每次正常请求依次执行：成功工具对清理 → 原生压力处理 → ACP 重测 → 本次提醒。提醒不能额外唤起被拒绝、取消或跳过的请求。
-
-提前提醒只对显式配置的路由启用，默认 `pressureRoutes: []`。启用路由需核对容量、输出预留和原生策略，满足 `R < S < H`。整条提醒预算包含消息包装、粗地图和指引；超预算依次缩短预览、减少区间、保留短提醒。
-
-每段持续高压只提醒一次；实时计量 `T < R` 后恢复资格。reload/resume/HMR 后，当前低于 R 直接复位，否则在当前 Session 的原始 Log 中通过 `eventAt` 一次扫描恢复已提醒状态。正常步骤使用内存状态；不写 reset 事件，不重建历史压力。降压后再升高、第二条提醒落档前恰好重启时，可能沿用旧的已提醒状态，直到再次测得 `T < R`。
-
-## 源码验收复跑
-
-保持当前工作区的并列仓库布局：ACP、session-tools 和 Harness 源码位于同一父目录，Harness 已有 Vitest、TypeScript、测试依赖及 vendor 声明产物。在 ACP 仓库执行：
+ACP 与 Harness 源码位于同一父目录，Harness 提供 Vitest、TypeScript、测试依赖及 vendor 声明产物。在 ACP 根执行：
 
 ```sh
-node tests/acceptance/run.mjs
 node tests/acceptance/typecheck.mjs
-# 或依次执行严格检查和测试：
-pnpm --config.verify-deps-before-run=false check
+node tests/acceptance/run.mjs text-ranges regions protection provider active-loop active-failures recorded-replay guard hide reminder
 ```
 
-[测试入口](<../tests/acceptance/run.mjs>)执行 ACP 测试与 Query capture 类型测试；[严格类型检查入口](<../tests/acceptance/typecheck.mjs>)检查 ACP、地图源码及测试，不过滤诊断。以上通过源码路径别名运行，不替代[独立成品验收](<delivery.md>)。
+[严格类型检查](<../tests/acceptance/typecheck.mjs>)检查 ACP 源码及测试，不过滤诊断；[测试入口](<../tests/acceptance/run.mjs>)使用源码路径别名和既有 Loader、Loop、delivery helper。测试临时目录自动清理，源码验证不替代[打包后隔离安装](<delivery.md>)。
 
-[录制回放场景](<../tests/acceptance/recorded-replay.spec.ts>)使用现有 `installLlmReplay` 与 `normalizeSessionSnapshots` 验证完整 Log：首次 Loader/Loop 产生原生 JSONL 录制，第二个全新 Loader/Loop 消费录制流，检查 fallback adapter 未被调用，并比较规范化日志。场景应涵盖双区间压缩、未选内容保留、工具对清理、下一请求及最终回答。
+关键行为包括：字面唯一性、缺失与歧义、同节点与多 block、当前摘要替换、全批拒绝无副作用、完整工具配对和保护、独立调用 guard、双非相邻原生提交、目标变化停止、错误结算事实、工具对清理与 replay，以及提醒计量、去重和恢复。模型可见输出通过[录制回放](<../tests/acceptance/recorded-replay.spec.ts>)消费真实嵌入 assistant streams、比较完整规范化 Log，并检查下一请求和最终回答。
 
-## 验证要求
-
-1. **Query 与地图：** 验证 live/cold、store/canonical 差异、cut 与 meter revision、只读类型与 DTO 所有权、当前窗口、失效 anchor、计量依据、scope 和完整输出预算。
-2. **提交与清理：** 验证双非相邻区间、保护与工具配对、目标变化、部分成功、取消、提交后错误、准入、最终结算、两次 append 中断及 replay。
-3. **真实组合：** 用现有 testkit、Mock LLM、keyless session snapshot 和真实 Loader 验证工具注册、唯一 provider、公开导入、peer 单例与清理→原生压力→提醒时序。源码测试不能代替打包后导入和隔离安装验证。
-4. **预算与任务质量：** 用主用路由及本机会话校准地图、提醒、回读和摘要开销；压缩后继续完成修改和验证，检查关键约束与未解决项是否保留。成本结论需实际 input/output usage、额外请求、缓存和延迟对照。
-
-前三项对应各设计记录的验收要求；第四项决定预算是否适合日常工作及压缩是否真正有收益。源码、成品解析和真实模型效果应分别验证。
+源码、成品解析和真实模型质量分别验证。实际预算与成本需结合工作路由、usage、缓存及延迟评估，不能由确定性 fixture 推断固定收益。

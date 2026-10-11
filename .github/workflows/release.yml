@@ -23,6 +23,7 @@ jobs:
     permissions:
       contents: write
     env:
+      npm_config_verify_deps_before_run: 'false'
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v6
@@ -39,7 +40,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$RELEASE_TAG" = "v$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')"
-          pnpm install --frozen-lockfile --ignore-workspace --config.auto-install-peers=false --config.enable-global-virtual-store=false
+          pnpm --config.verify-deps-before-run=false install --frozen-lockfile --ignore-workspace --config.auto-install-peers=false --config.enable-global-virtual-store=false
       - name: Build and pack the plugin
         run: pnpm --config.verify-deps-before-run=false pack --pack-destination dist/release
       - name: Verify clean profile installation and production Loader behavior
@@ -47,8 +48,7 @@ jobs:
           set -euo pipefail
           version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')
           query=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).devDependencies["@deepseek-ai/dsh-session-query"]')
-          map=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).devDependencies["dsh-session-tools"]')
-          node tests/delivery/run.mjs --acp "dist/release/dsh-active-context-$version.tgz" --query "$query" --map "$map"
+          node tests/delivery/run.mjs --acp "dist/release/dsh-active-context-$version.tgz" --query "$query"
           (cd dist/release && sha256sum dsh-active-context-*.tgz > SHA256SUMS)
       - name: Publish immutable assets
         env:
@@ -61,4 +61,4 @@ jobs:
             exit 1
           fi
           version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')
-          gh release create "$RELEASE_TAG" "dist/release/dsh-active-context-$version.tgz" dist/release/SHA256SUMS --verify-tag --title "$RELEASE_TAG" --notes 'Model-authored active context compaction: select nonadjacent Surface regions using session_context_map and submit summaries through one standalone context_compress call. Replaces the Basic compaction provider while retaining native pressure handling. Requires the exact capture-capable Query and session-tools peers declared in the package; install the tarball in the consuming profile and disable the original Basic provider.'
+          gh release create "$RELEASE_TAG" "dist/release/dsh-active-context-$version.tgz" dist/release/SHA256SUMS --verify-tag --title "$RELEASE_TAG" --notes 'Model-authored active context compaction: select nonadjacent Surface regions using unique literal text endpoints and submit summaries through one standalone context_compress call. Replaces the Basic compaction provider while retaining native pressure handling. Requires the exact capture-capable Query peer declared in the package; install the tarball in the consuming profile and disable the original Basic provider.'
