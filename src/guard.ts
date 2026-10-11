@@ -49,7 +49,7 @@ export function installGuard(ctx: Context, config: AcpConfig, state: AcpState): 
   })
   ctx.tools.guard(exec => {
     if (exec.name !== 'context_compress') return undefined
-    const deny = 'ACP: context_compress requires one independent native/both call, no task text or siblings; refresh the map and submit it directly, not through run_code.'
+    const deny = 'ACP: context_compress requires one independent native/both call, no task text or siblings. Retry directly in a separate assistant response, not through run_code/PTC; select each region with two distinctive literal text endpoints in range (optional role) and a non-empty summary.'
     if (exec.agent === undefined || exec.parent !== undefined || exec.rootCallId !== exec.callId) return deny
     const author = authors.get(exec.agent.session)
     const assistant = author?.assistant
