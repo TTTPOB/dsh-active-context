@@ -1,17 +1,17 @@
 # ACP 行为核对与验收指南
 
-本文供实现者和独立审查者核对 ACP 的行为与证据。日常使用流程与交付范围见 [README](<../README.md>)；各 ADR 分别记录实施和验收情况。
+本文供实现者和独立审查者核对 ACP 的行为与验证方法。日常使用流程见 [README](<../README.md>)；打包及干净 profile 验收见[成品交付指南](<delivery.md>)。各 ADR 记录设计行为与取舍。
 
 ## 职责与设计入口
 
 | 组件 | 负责的行为 | 设计记录 |
 |---|---|---|
 | session-tools | 当前 Surface 的有界概览、节点窗口、定位与同源计量 | [地图 ADR 0004](<../../dsh-session-tools/docs/adr/0004-context-map-and-metering.md>) |
-| Query | live/cold 源解析、同步只读采样、读取上界及租约 | [同步采样决策](<../../deepseek-harness/.agents/notes/implemented/architecture/2026-10-10-session-query-synchronous-capture.zh.md>) |
+| Query | live/cold 源解析、同步只读采样、读取上界及租约 | [同步采样决策](<../../deepseek-harness/docs/subsystems/session-query.zh.md#synchronous-session-sampling>) |
 | ACP 提交 | 目标保护、多区间执行、独立调用准入、最终结算及工具对清理 | [ADR 0001](<adr/0001-active-compaction-submission.md>) |
 | ACP 提醒 | 原生压力处理后的提醒、阈值、整条消息预算及高压期去重 | [ADR 0002](<adr/0002-pressure-notices.md>) |
 
-Query 按所属仓库维护英文、中文及一致性记录；其他 ADR 使用所属树外项目的中文格式。字段与预算在各自权威记录维护，验收证据进入相应记录或现有测试入口。
+字段与预算在各自权威记录维护。
 
 ## 核对使用行为
 
@@ -56,15 +56,15 @@ node tests/acceptance/typecheck.mjs
 pnpm --config.verify-deps-before-run=false check
 ```
 
-[测试入口](<../tests/acceptance/run.mjs>)执行 ACP 测试与 Query capture 类型测试；[严格类型检查入口](<../tests/acceptance/typecheck.mjs>)检查 ACP、地图源码及测试，不过滤诊断。独立统一验收已通过 14 个测试文件、56 项测试及 33 个 ACP/地图源码与测试入口的严格类型检查（TypeScript 6.0.3，零诊断过滤）。以上通过源码路径别名运行，交付及尚未验证范围见 [README](<../README.md#交付与验证范围>)。
+[测试入口](<../tests/acceptance/run.mjs>)执行 ACP 测试与 Query capture 类型测试；[严格类型检查入口](<../tests/acceptance/typecheck.mjs>)检查 ACP、地图源码及测试，不过滤诊断。以上通过源码路径别名运行，不替代[独立成品验收](<delivery.md>)。
 
-[录制回放场景](<../tests/acceptance/recorded-replay.spec.ts>)复用既有 `installLlmReplay` 与 `normalizeSessionSnapshots`：首次真实 Loader/Loop 执行双区间压缩，按原生 JSONL 格式记录；第二个全新 Loader/Loop 消费全部 5 条录制流，fallback adapter 调用为 0，两次完整规范化 Log 一致。场景检查摘要、未选内容、工具对清理、下一请求及最终回答；对应现有 replay/snapshot helper 的覆盖范围。
+[录制回放场景](<../tests/acceptance/recorded-replay.spec.ts>)使用现有 `installLlmReplay` 与 `normalizeSessionSnapshots` 验证完整 Log：首次 Loader/Loop 产生原生 JSONL 录制，第二个全新 Loader/Loop 消费录制流，检查 fallback adapter 未被调用，并比较规范化日志。场景应涵盖双区间压缩、未选内容保留、工具对清理、下一请求及最终回答。
 
-## 验收与证据
+## 验证要求
 
 1. **Query 与地图：** 验证 live/cold、store/canonical 差异、cut 与 meter revision、只读类型与 DTO 所有权、当前窗口、失效 anchor、计量依据、scope 和完整输出预算。
 2. **提交与清理：** 验证双非相邻区间、保护与工具配对、目标变化、部分成功、取消、提交后错误、准入、最终结算、两次 append 中断及 replay。
 3. **真实组合：** 用现有 testkit、Mock LLM、keyless session snapshot 和真实 Loader 验证工具注册、唯一 provider、公开导入、peer 单例与清理→原生压力→提醒时序。源码测试不能代替打包后导入和隔离安装验证。
 4. **预算与任务质量：** 用主用路由及本机会话校准地图、提醒、回读和摘要开销；压缩后继续完成修改和验证，检查关键约束与未解决项是否保留。成本结论需实际 input/output usage、额外请求、缓存和延迟对照。
 
-前三项对应各设计记录的验收要求；第四项决定预算是否适合日常工作及压缩是否真正有收益。尚未执行或缺少证据的项目保持待验，不以文档状态、目录存在或版本号代替验证。
+前三项对应各设计记录的验收要求；第四项决定预算是否适合日常工作及压缩是否真正有收益。源码、成品解析和真实模型效果应分别验证。
