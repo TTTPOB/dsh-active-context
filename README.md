@@ -18,23 +18,15 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 - `acp.pressureRoutes` 默认为 `[]`，提前提醒默认禁用。仅显式配置的 provider/model 路由可提醒，阈值须满足 `resetBelowTokens < nudgeAtTokens < 原生自动压缩线`。
 - 依赖 Query 的 `captureSession` 和 session-tools 的公开 `context-map` 库。地图负责采样与定位，ACP 负责保护、提交及清理。
 
-## 交付与验证范围
+## 开发文档
 
-本轮版本为 Query `0.1.7-rc.2-fork4`、session-tools `0.2.0`、ACP `0.1.0`，均为本地源码版本，尚未发布。提交、成功工具对清理和提前提醒均已通过独立源码行为验收；实际验证范围见[验收指南](<docs/review-guide.md#源码验收复跑>)。
+- [行为核对与验收指南](<docs/review-guide.md>)：职责分工、行为核对与源码验证方法。
+- [成品构建与发布](<docs/delivery.md>)：打包、干净 profile 安装、正式解析与 Loader 验收、配置侧接入。
 
-源码验证依赖并列 Harness/session-tools 仓库及现有测试依赖。在本仓库执行 `node tests/acceptance/run.mjs` 和 `node tests/acceptance/typecheck.mjs`，前提与覆盖范围见[复跑说明](<docs/review-guide.md#源码验收复跑>)。
-
-已验证源码行为、现有 replay/snapshot helper 场景，以及 Query 和地图的本地包功能。交付与效果仍有以下边界：
-
-- Query tarball 检查使用既有 workspace peers；地图解包测试使用源码路径 peers。ACP 自身 tarball、干净 peer 安装与正式部署解析尚未验证；地图的 fork4 Release URL 和 lockfile 更新仍待交付。
-- 顶层 shipped-profile recorded snapshot corpus 尚未运行。现有 helper 场景覆盖真实 Loader/Loop、录制流回放、下一次请求和完整 Log 一致性，详见验收指南。
-- 未评测真实模型的摘要语义与连续工作质量、实际 input/output usage、付费成本、缓存收益及延迟。
-- 本轮未启用 ACP，也未修改真实 Host/profile。
-
-[行为核对与验收指南](<docs/review-guide.md>)列出职责分工、验证要求和证据归属。详细设计：
+设计记录：
 
 - [通用 Surface 地图与计量](<../dsh-session-tools/docs/adr/0004-context-map-and-metering.md>)
-- [Query 同步只读采样](<../deepseek-harness/.agents/notes/implemented/architecture/2026-10-10-session-query-synchronous-capture.zh.md>)
+- [Query 同步只读采样](<../deepseek-harness/docs/subsystems/session-query.zh.md#synchronous-session-sampling>)
 - [主动压缩提交与生命周期](<docs/adr/0001-active-compaction-submission.md>)
 - [提前压力提醒与原生兜底](<docs/adr/0002-pressure-notices.md>)
 

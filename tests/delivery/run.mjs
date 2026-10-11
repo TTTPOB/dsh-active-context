@@ -1,0 +1,73 @@
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { parseArgs } from 'node:util'
+
+const { values } = parseArgs({ options: {
+  acp: { type: 'string' }, map: { type: 'string' }, query: { type: 'string' },
+} })
+for (const key of ['acp', 'map', 'query']) assert.ok(values[key], `--${key} requires a tarball path or verified Release URL`)
+const source = value => value.startsWith('https://') ? value : 'file:' + resolve(value)
+const store = dirname(execFileSync('pnpm', ['store', 'path'], { cwd: fileURLToPath(new URL('../../', import.meta.url)), encoding: 'utf8' }).trim())
+const scratch = process.env.DSH_CONFIG_TEST_ROOT ?? tmpdir()
+await mkdir(scratch, { recursive: true })
+const root = await mkdtemp(join(scratch, 'delivery-'))
+const host = join(root, 'installation')
+const home = join(root, 'home')
+const profile = join(home, 'profiles/web')
+const manifestPath = join(profile, 'package.json')
+const session = 'https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-0.1.7-rc.2-fork1.tgz'
+const sqlite = 'https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-query-sqlite-0.1.7-rc.2-fork6.tgz'
+const put = (file, value) => writeFile(file, JSON.stringify(value, null, 2) + '\n')
+const install = cwd => execFileSync('pnpm', [
+  'install', ...(cwd === host ? [] : ['--ignore-workspace']), '--config.auto-install-peers=false',
+  '--config.enable-global-virtual-store=false', '--config.verify-deps-before-run=false', `--config.store-dir=${store}`,
+], { cwd, stdio: 'inherit', env: { ...process.env, DSH_HOME: home }, timeout: 600_000 })
+try {
+  await mkdir(host, { recursive: true })
+  await mkdir(profile, { recursive: true })
+  await put(join(host, 'package.json'), {
+    name: 'acp-isolated-host', private: true, type: 'module',
+    dependencies: {
+      '@deepseek-ai/dsh': '0.1.7-rc.2', '@deepseek-ai/cordis-plugin-group': '1.0.4',
+      '@deepseek-ai/cordis': '4.0.4', '@deepseek-ai/schemastery': '3.18.4',
+      // Required peers of Tools, AgentLoop, Persistence and Basic belong to the Host root.
+      ...Object.fromEntries([
+        'llm', 'agent', 'scope', 'sandbox', 'session', 'invariants', 'ptc-runtime',
+        'system-prompt', 'user-approval', 'sandbox-policy', 'tools', 'session-projection',
+        'session-persistence', 'commands', 'compaction', 'token-meter',
+        'compaction-tool-result-pruner', 'agent-loop',
+      ].map(name => ['@deepseek-ai/dsh-' + name, '0.1.7-rc.2'])),
+    },
+  })
+  await put(join(host, 'pnpm-workspace.yaml'), {
+    packages: [], blockExoticSubdeps: false,
+    allowBuilds: { '@deepseek-ai/dsh-subprocess-local': true, '@google/genai': true, koffi: true, 'node-pty': true, protobufjs: true },
+    overrides: {
+      '@deepseek-ai/dsh-session': session,
+      '@deepseek-ai/dsh-session-query': source(values.query),
+      '@deepseek-ai/dsh-session-query-sqlite': sqlite,
+    },
+  })
+  const dependencies = { 'dsh-active-context': source(values.acp), 'dsh-session-tools': source(values.map) }
+  await put(manifestPath, { name: 'acp-isolated-profile', private: true, type: 'module', dependencies, dsh: { profile: { bundles: [] } } })
+  install(host)
+  install(profile)
+  assert.deepEqual(JSON.parse(await readFile(manifestPath, 'utf8')).dependencies, dependencies)
+  // The profile must not acquire its own Cordis/DSH service packages, even transitively.
+  const profileLock = await readFile(join(profile, 'pnpm-lock.yaml'), 'utf8')
+  assert.doesNotMatch(profileLock, /^  ['"]?@deepseek-ai\/(?:cordis|dsh-[^/'"]+)@/m)
+  const hostRequire = createRequire(join(host, 'package.json'))
+  const anchor = await realpath(hostRequire.resolve('@deepseek-ai/dsh/package.json'))
+  const result = execFileSync(process.execPath, [fileURLToPath(new URL('./verify.mjs', import.meta.url)), anchor, home], {
+    cwd: profile, env: { ...process.env, DSH_HOME: home }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'], timeout: 120_000,
+  })
+  console.log(result.trim())
+} finally {
+  await rm(root, { recursive: true, force: true })
+}
+console.log(JSON.stringify({ installation: 'clean pnpm Host + plugin-only profile', hostStarted: false, renderedConfigurationVerified: false, cleaned: true }))

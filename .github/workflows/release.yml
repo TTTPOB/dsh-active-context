@@ -1,0 +1,64 @@
+name: Active context release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable source tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: active-context-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Validate immutable tag and install build dependencies
+        run: |
+          set -euo pipefail
+          test "$RELEASE_TAG" = "v$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')"
+          pnpm install --frozen-lockfile --ignore-workspace --config.auto-install-peers=false --config.enable-global-virtual-store=false
+      - name: Build and pack the plugin
+        run: pnpm --config.verify-deps-before-run=false pack --pack-destination dist/release
+      - name: Verify clean profile installation and production Loader behavior
+        run: |
+          set -euo pipefail
+          version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')
+          query=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).devDependencies["@deepseek-ai/dsh-session-query"]')
+          map=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).devDependencies["dsh-session-tools"]')
+          node tests/delivery/run.mjs --acp "dist/release/dsh-active-context-$version.tgz" --query "$query" --map "$map"
+          (cd dist/release && sha256sum dsh-active-context-*.tgz > SHA256SUMS)
+      - name: Publish immutable assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release already exists; refusing to overwrite.' >&2
+            exit 1
+          fi
+          version=$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).version')
+          gh release create "$RELEASE_TAG" "dist/release/dsh-active-context-$version.tgz" dist/release/SHA256SUMS --verify-tag --title "$RELEASE_TAG" --notes 'Model-authored active context compaction: select nonadjacent Surface regions using session_context_map and submit summaries through one standalone context_compress call. Replaces the Basic compaction provider while retaining native pressure handling. Requires the exact capture-capable Query and session-tools peers declared in the package; install the tarball in the consuming profile and disable the original Basic provider.'
