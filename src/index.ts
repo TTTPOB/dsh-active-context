@@ -26,7 +26,42 @@ const endpoint = {
 } as const
 
 /** Working-model guidance: summaries are authored here, not by an auxiliary model. */
-export const ACP_INSTRUCTIONS = 'When earlier context is no longer needed verbatim, recall exact source events as needed. Submit model-written summaries with context_compress in one standalone assistant response: exactly one native/both context_compress call, no other tools, no task prose, never run_code/PTC. Reasoning is allowed. Choose non-adjacent regions using exactly two literal text endpoints per range, optionally qualified by role. Each endpoint must uniquely match one node in the current derived text blocks; both complete nodes are included and may be the same node. Matching is case-sensitive without trimming; reasoning and tool arguments are not searched. Preserve conclusions, exact names and paths, modifications, verification evidence, failures, open questions, constraints and uncertainty, and readback references. Protected current instructions, current Step and latest task input cannot be selected. On partial or failed submission, select only failed or unattempted work again using current text; committed regions are not rolled back.'
+export const ACP_INSTRUCTIONS = `When earlier context is no longer needed verbatim, recall exact source events as needed. Submit model-written summaries with context_compress in one standalone assistant response: exactly one native/both context_compress call, no other tools, no task prose, never run_code/PTC. Reasoning is allowed. Choose non-adjacent regions using exactly two literal text endpoints per range, optionally qualified by role. Each endpoint must uniquely match one node in the current derived text blocks; both complete nodes are included and may be the same node. A short distinctive phrase is enough; you need not copy a whole message. Matching is case-sensitive within each individual text block, without trimming or whitespace/Unicode normalization. Text does not select character cuts or act as regex; reasoning, tool arguments and the Log are not searched. Repeated hits within one node count as one match; only matches in different nodes cause ambiguity.
+
+Preserve conclusions, exact names and paths, modifications, verification evidence, failures, open questions, constraints and uncertainty, and readback references. Protected current instructions, current Step and latest task input cannot be selected. On partial or failed submission, select only failed or unattempted work again using current text; committed regions are not rolled back.
+
+These examples use completed old history; the current task has a separate newer input. Runtime protection and tool-pair checks still apply.
+
+Example 1 — short phrases inside the first and third messages:
+\`\`\`json
+[
+  { "role": "user", "text": "Old check: input source verified; keep the original filename." },
+  { "role": "assistant", "text": "The checksum matched; the original file stays unchanged." },
+  { "role": "assistant", "text": "Wrap-up: review finished; no open checks remain." }
+]
+\`\`\`
+Submit:
+\`\`\`json
+{"regions":[{"range":[{"text":"source verified","role":"user"},{"text":"review finished","role":"assistant"}],"summary":"Source and checksum verified; preserve the original file and filename. No checks remain."}]}
+\`\`\`
+This selects all three complete messages, including the text before and after both matching phrases. It does not cut from the middle of the first message to the middle of the third.
+
+Example 2 — the same phrase in two assistant nodes:
+\`\`\`json
+[
+  { "role": "assistant", "text": "Alpha check passed; retain the red file." },
+  { "role": "assistant", "text": "Beta check passed; retain the blue file." }
+]
+\`\`\`
+This submission is ambiguous:
+\`\`\`json
+{"regions":[{"range":[{"text":"check passed","role":"assistant"},{"text":"blue file","role":"assistant"}],"summary":"Beta passed; keep the blue file."}]}
+\`\`\`
+The start text matches both nodes. Both have role assistant, so that role cannot distinguish them. Choose a more distinctive phrase:
+\`\`\`json
+{"regions":[{"range":[{"text":"Beta check passed","role":"assistant"},{"text":"blue file","role":"assistant"}],"summary":"Beta passed; keep the blue file."}]}
+\`\`\`
+Both endpoints now match only the second node, selecting that whole message. In other history, adding role can resolve repeated text only when the roles distinguish its matching nodes.`
 
 /** Mount the unique provider, real worker hooks, and one awaited outer wrapper. */
 export function apply(ctx: Context, config: PluginConfig = Config({})): void {
