@@ -1,8 +1,27 @@
 import { describe, expect, it, vi } from 'vitest'
-import { preflightRegions } from '../src/regions.ts'
+import { preflightRegions, renderBatchFacts } from '../src/regions.ts'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
+import { SessionSeq } from '@deepseek-ai/dsh-session'
+import { AcpConfigSchema } from '../src/config.ts'
 import { providerFixture } from './provider-fixture.ts'
 
 describe('active region batches', () => {
+  it('preserves final cancellation details and committed metering facts in one bounded result', () => {
+    const rendered = renderBatchFacts({ status: 'partial', mapId: 'fixture-map', executionOrder: ['tail'], regions: [{
+      id: 'tail', inputIndex: 0, status: 'committed_with_error', compactionId: CompactionId('native-id'),
+      replacementSeq: SessionSeq(10), shadowedSeqs: [SessionSeq(2)],
+      shadowedRouteTokens: 200, shadowedHeuristicTokens: 180,
+      replacementRouteTokens: 50, replacementHeuristicTokens: 45,
+    }] }, AcpConfigSchema({}), {
+      isError: true, error: { message: 'cancelled after replacement', info: { name: 'AbortError', code: 'ABORTED' } },
+      content: [{ type: 'text', text: 'request cancelled' }, { type: 'text', text: 'original native details' }],
+    })
+    const output = JSON.parse(rendered)
+    expect(output.cleanup).toBe('retained')
+    expect(output.final_error).toEqual({ name: 'AbortError', code: 'ABORTED', message: 'cancelled after replacement', content: 'request cancelled\noriginal native details' })
+    expect(output.regions[0]).toMatchObject({ status: 'committed_with_error', compaction_id: 'native-id', replacement_seq: 10, route_token_reduction: 150, route_reduction_ratio: 0.75 })
+  })
+
   it('commits two non-adjacent regions tail to head and retains intervening content', async () => {
     const fixture = await providerFixture()
     try {

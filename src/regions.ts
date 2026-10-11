@@ -234,7 +234,7 @@ export async function submitRegions(
       if (fact.compactionId !== undefined && fact.replacementSeq === undefined
         && region.seqs.some(seq => !agent.session.surface.nodes.includes(seq))) fact.status = 'unconfirmed'
       facts.stopReason = fact.error
-      facts.status = facts.regions.some(item => item.status === 'committed' || item.status === 'committed_with_error') ? 'partial' : 'all_failed'
+      facts.status = facts.regions.some(item => item.status === 'committed' || item.status === 'committed_with_error' || item.status === 'unconfirmed') ? 'partial' : 'all_failed'
       return renderBatchFacts(facts, config)
     } finally {
       dispose()
