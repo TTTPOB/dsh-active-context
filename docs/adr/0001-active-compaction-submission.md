@@ -22,7 +22,7 @@ ACP（Active Context Pruning，模型主动裁剪上下文）让工作模型选�
 
 ### 输入与整体预检
 
-调用接受同一 `snapshot_ref` 下的 `regions`，每项包含唯一短 id、start/end anchor（seq + before/after）和非空文本 summary。压缩只作用于当前会话，区间按 Surface 位置解析；map_id 关联采样记录。
+调用接受同一 `snapshot_ref` 下的 `regions`。`snapshot_ref` 包含 `session_id`、包含上界事件的 `read_seq`（空源为 -1）和诊断用 `map_id`；每项包含唯一短 id、start/end anchor（`{seq, edge}`，edge 为 `before` 或 `after`）和非空文本 summary。压缩只作用于当前会话，区间按 Surface 位置解析，`map_id` 不用于查找缓存快照。
 
 开始任何压缩事务前，整体检查全部区间：
 
@@ -36,7 +36,7 @@ ACP（Active Context Pruning，模型主动裁剪上下文）让工作模型选�
 
 保护当前 system/developer、当前 Step、最近任务输入和全部存活 `form:instructions`。开放 Turn 中已经完成的旧步骤仍可压缩。
 
-最近任务输入建议覆盖已启用的 user、agent-message/form:relay、goal、schedule 来源；user 包括子代理初始委派。维护 notice 不作为任务输入，其他任务型来源可配置加入。checkpoint 的创建 Step 与它概括的历史分别判断。
+最近任务输入覆盖配置中启用的 user、agent-message/form:relay、goal、schedule 来源；user 包括子代理初始委派。维护 notice 不作为任务输入，其他任务型来源可配置加入。checkpoint 的创建 Step 与它概括的历史分别判断。
 
 摘要保留结论、关键修改及位置、结果和验证证据、失败原因、未解决问题、约束与不确定性，以及继续工作需要的精确名称、路径和回读入口。模型负责摘要语义，宿主负责结构与保护规则。
 
@@ -50,7 +50,7 @@ ACP（Active Context Pruning，模型主动裁剪上下文）让工作模型选�
 
 ### 多区间执行与失败行为
 
-建议按初始 Surface 从后向前执行。预检保存各目标的有序 seq、不可变原事件与解释后消息引用、计量数据和保护信息；每项执行前重找剩余目标，检查取消、顺序、内容、保护及工具配对。
+按初始 Surface 从后向前执行。预检保存各目标的有序 seq、不可变原事件与解释后消息引用、计量数据和保护信息；每项执行前重找剩余目标，检查取消、顺序、内容、保护及工具配对。
 
 自身替换后，尚未执行的区间按原目标重新定位。首个执行失败或目标变化即停止余项；已提交项保留，不回滚。结果按输入顺序列出，并另给实际执行顺序。
 
