@@ -1,7 +1,7 @@
 # ADR 0001：主动压缩的提交与生命周期
 
-- 状态：Proposed（提议）
-- 实施情况：未实现。
+- 状态：Accepted（已采纳）
+- 实施情况：已实现，源码行为验收通过。
 - 归属：树外 Cordis 插件 dsh-active-context。
 
 ## 背景
@@ -10,7 +10,7 @@ ACP（Active Context Pruning，模型主动裁剪上下文）让工作模型选�
 
 [通用地图](../../../dsh-session-tools/docs/adr/0004-context-map-and-metering.md)提供 Surface 位置、回读入口和 token 计量。ACP 必须依赖 token-meter，以实际计量输入执行判断；负责选区保护、摘要提交和成功调用后的清理；[提前压力提醒](0002-pressure-notices.md)单独记录。
 
-## 决策提案
+## 决策
 
 ### 使用方式
 
@@ -34,9 +34,9 @@ ACP（Active Context Pruning，模型主动裁剪上下文）让工作模型选�
 
 ### 受保护内容与摘要要求
 
-保护当前 system/developer、当前 Step、最近任务输入和全部存活 `form:instructions`。开放 Turn 中已经完成的旧步骤仍可压缩。
+保护当前 system/developer、当前 Step、最近任务输入（包括承载该输入的存活 checkpoint）和全部存活 `form:instructions`。开放 Turn 中已经完成的旧步骤仍可压缩。
 
-最近任务输入覆盖配置中启用的 user、agent-message/form:relay、goal、schedule 来源；user 包括子代理初始委派。维护 notice 不作为任务输入，其他任务型来源可配置加入。checkpoint 的创建 Step 与它概括的历史分别判断。
+最近任务输入覆盖配置中启用的 user、agent-message/form:relay、goal、schedule 来源；user 包括子代理初始委派。维护 notice 不作为任务输入，其他任务型来源可配置加入。checkpoint 的创建 Step 与它概括的历史分别判断；最新任务输入被原生压缩替换后，按 `sourceEventSeqs` 延续其存活 checkpoint 的保护，直到出现新的任务输入。
 
 摘要保留结论、关键修改及位置、结果和验证证据、失败原因、未解决问题、约束与不确定性，以及继续工作需要的精确名称、路径和回读入口。模型负责摘要语义，宿主负责结构与保护规则。
 
@@ -123,7 +123,7 @@ guard 在审批后、工具 body 前运行，只拒绝压缩。混合批次中�
 
 ## 预算与验收
 
-maxRegions 至少允许 2，同时限制摘要总 tokens/UTF-8 bytes、结果和短确认长度。骨架完成后用本机会话粗测，选取适合日常工作的默认值。
+`maxRegions` 至少允许 2，同时限制摘要总 tokens/UTF-8 bytes、结果和短确认长度。当前默认值见[ACP 配置](<../../src/config.ts>)；这些初始限额已通过边界行为测试，日常路由的准备空间和成本仍需实际评测校准。
 
 1. 双非相邻区间按 Surface 从后向前替换，中间内容保留；目标保护、工具配对、整体预检和超预算拒绝有效。
 2. 自身替换后余项可继续；预检后同计量值的目标内容变化能被识别；选区外变化与单次原生校验分别符合上述规则。
@@ -133,9 +133,13 @@ maxRegions 至少允许 2，同时限制摘要总 tokens/UTF-8 bytes、结果和
 6. 发布包导入、peer 单例、唯一 provider 和真实 Loader 时序可用；关键模型可见输出使用现有 keyless snapshot 验证。
 7. 压缩后继续完成修改和验证，保留关键约束与未解决项；对比原生路径的实际 usage、额外请求、缓存及延迟。
 
+## 已验证范围
+
+独立源码验收覆盖双非相邻区间、完整预检、最新任务及其存活 checkpoint 保护、逐项失败和取消、独立调用准入、最终结算、成功工具对清理、两次 append 中断、Log replay 及下一请求。真实 Loader/Loop 和现有 replay/snapshot helper 场景通过；统一测试与严格类型检查见[复跑入口](<../review-guide.md#源码验收复跑>)。原设计的交付和成本验收要求保留；本轮未验证范围统一列在 [README](<../../README.md#交付与验证范围>)。
+
 ## 实现依据
 
-- 清理依据：[参考实现的整对替换](https://github.com/Tyan66666/billion-context-dsh/blob/91a8a1e581927d68511caf0678419a45040f2245/src/region.ts#L815-L904)及其[结果回调触发点](https://github.com/Tyan66666/billion-context-dsh/blob/91a8a1e581927d68511caf0678419a45040f2245/src/index.ts#L453-L470)。本提案使用上述 pre-step 清理时机与有界短确认；参考实现不作为本插件运行验收证据。
+- 清理依据：[参考实现的整对替换](https://github.com/Tyan66666/billion-context-dsh/blob/91a8a1e581927d68511caf0678419a45040f2245/src/region.ts#L815-L904)及其[结果回调触发点](https://github.com/Tyan66666/billion-context-dsh/blob/91a8a1e581927d68511caf0678419a45040f2245/src/index.ts#L453-L470)。本实现采用 pre-step 清理时机与有界短确认；自身验收见上节。
 - provider：[公开类](../../../deepseek-harness/packages/compaction/compaction-basic/src/index.ts#L108-L141)、[summarize 扩展点](../../../deepseek-harness/packages/compaction/compaction-basic/src/index.ts#L237-L257)及[动态调用](../../../deepseek-harness/packages/compaction/compaction-basic/src/index.ts#L437-L448)。
 - 目标检查：[原生 region 校验](../../../deepseek-harness/packages/compaction/compaction-basic/src/region.ts#L173-L213)、[whole-surface 比较](../../../deepseek-harness/packages/compaction/compaction-basic/src/region.ts#L430-L439)及 [Session 消息解释](../../../deepseek-harness/packages/core/session/src/index.ts#L842-L890)。
 - 准入：[guard 注册](../../../deepseek-harness/packages/core/tools/src/index.ts#L1126-L1141)、[PTC 身份](../../../deepseek-harness/packages/core/tools/src/ptc.ts#L538-L554)及 [assistant 落档后调度](../../../deepseek-harness/packages/core/agent-loop/src/agent.ts#L495-L520)。

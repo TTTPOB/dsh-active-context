@@ -9,7 +9,7 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 3. 在一条独立 assistant 响应中直接调用一次 `context_compress`，提交 `snapshot_ref` 和 `regions`。使用 native 或 both 通道；该响应只包含这一次工具调用及可选 reasoning，不带其他工具或任务正文，也不经 run_code/PTC 调用。
 4. 查看逐项结果。执行从 Surface 尾部向前进行，首个失败即停止，已提交项保留。部分成功或失败后刷新地图，只重新选择失败或未执行项。
 
-当前 system/developer、当前 Step、最近任务输入及存活的 `form:instructions` 受保护。全批成功且最终工具结果正常落档后，插件在下一 Step 的原生压力检查前，用短确认替换相邻的调用与结果消息。错误、部分成功、取消及清理前中断保留原工具对。
+当前 system/developer、当前 Step、最近任务输入（包括承载该输入的存活 checkpoint）及存活的 `form:instructions` 受保护。全批成功且最终工具结果正常落档后，插件在下一 Step 的原生压力检查前，用短确认替换相邻的调用与结果消息。错误、部分成功、取消及清理前中断保留原工具对。
 
 ## 配置与运行条件
 
@@ -20,12 +20,21 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 
 ## 交付与验证范围
 
-本轮版本为 Query `0.1.7-rc.2-fork4`、session-tools `0.2.0`、ACP `0.1.0`，仅用于本地源码开发，尚未发布。源码和测试文件已经存在；完整验收、真实安装与成本效果仍待确认，不能据此视为当前 Host 已启用。ADR 状态与实施记录在独立验收后更新。
+本轮版本为 Query `0.1.7-rc.2-fork4`、session-tools `0.2.0`、ACP `0.1.0`，均为本地源码版本，尚未发布。提交、成功工具对清理和提前提醒均已通过独立源码行为验收；实际验证范围见[验收指南](<docs/review-guide.md#源码验收复跑>)。
+
+源码验证依赖并列 Harness/session-tools 仓库及现有测试依赖。在本仓库执行 `node tests/acceptance/run.mjs` 和 `node tests/acceptance/typecheck.mjs`，前提与覆盖范围见[复跑说明](<docs/review-guide.md#源码验收复跑>)。
+
+已验证源码行为、现有 replay/snapshot helper 场景，以及 Query 和地图的本地包功能。交付与效果仍有以下边界：
+
+- Query tarball 检查使用既有 workspace peers；地图解包测试使用源码路径 peers。ACP 自身 tarball、干净 peer 安装与正式部署解析尚未验证；地图的 fork4 Release URL 和 lockfile 更新仍待交付。
+- 顶层 shipped-profile recorded snapshot corpus 尚未运行。现有 helper 场景覆盖真实 Loader/Loop、录制流回放、下一次请求和完整 Log 一致性，详见验收指南。
+- 未评测真实模型的摘要语义与连续工作质量、实际 input/output usage、付费成本、缓存收益及延迟。
+- 本轮未启用 ACP，也未修改真实 Host/profile。
 
 [行为核对与验收指南](<docs/review-guide.md>)列出职责分工、验证要求和证据归属。详细设计：
 
 - [通用 Surface 地图与计量](<../dsh-session-tools/docs/adr/0004-context-map-and-metering.md>)
-- [Query 同步只读采样](<../deepseek-harness/.agents/notes/proposed/architecture/2026-10-10-session-query-synchronous-capture.zh.md>)
+- [Query 同步只读采样](<../deepseek-harness/.agents/notes/implemented/architecture/2026-10-10-session-query-synchronous-capture.zh.md>)
 - [主动压缩提交与生命周期](<docs/adr/0001-active-compaction-submission.md>)
 - [提前压力提醒与原生兜底](<docs/adr/0002-pressure-notices.md>)
 
