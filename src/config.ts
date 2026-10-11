@@ -1,7 +1,12 @@
 /** Loader validation for ACP budgets and the independent native Basic policy. */
 import z from '@deepseek-ai/schemastery'
 import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
-import type { AcpConfig, PluginConfig } from './types.ts'
+import type { AcpConfig, PluginConfig, PressureRoute } from './types.ts'
+
+// Schema builders produce mutable arrays; consumers receive the readonly config interface.
+type SchemaAcpConfig = Omit<AcpConfig, 'taskSourceKinds' | 'pressureRoutes'> & { taskSourceKinds: string[]; pressureRoutes: PressureRoute[] }
+type SchemaPluginInput = { acp?: Partial<SchemaAcpConfig>; basic?: Schemastery.TypeS<typeof BasicCompactionEngine.Config> }
+type SchemaPluginOutput = { acp: SchemaAcpConfig; basic: Schemastery.TypeT<typeof BasicCompactionEngine.Config> }
 
 const positive = () => z.number().step(1).min(1)
 const route = z.object({
@@ -12,7 +17,7 @@ const route = z.object({
 })
 
 /** Budget defaults are conservative initial limits; route thresholds require deployment values. */
-export const AcpConfigSchema = z.object({
+export const AcpConfigSchema: z<Partial<SchemaAcpConfig>, SchemaAcpConfig> = z.object({
   maxRegions: z.number().step(1).min(2).default(4),
   summaryMaxTokens: positive().default(8000),
   summaryMaxBytes: positive().default(32000),
@@ -29,7 +34,7 @@ export const AcpConfigSchema = z.object({
 })
 
 /** Public Cordis schema; native and ACP settings are never merged. */
-export const Config = z.object({
+export const Config: z<SchemaPluginInput, SchemaPluginOutput> = z.object({
   acp: AcpConfigSchema.default(AcpConfigSchema({})),
   basic: BasicCompactionEngine.Config.default({}),
 })
