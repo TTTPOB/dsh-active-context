@@ -11,7 +11,37 @@ export interface SurfaceCapture {
   readonly log: readonly SessionEvent[]
 }
 
-/** Protect current instructions, the active Step, and the most recent live task input. */
+function isTaskInput(message: Message, config: AcpConfig): boolean {
+  if (message.role !== 'user') return false
+  const source = message.source
+  if ('form' in source && source.form === 'notice') return false
+  const kind: string = source.kind
+  return config.taskSourceKinds.includes(kind)
+    && (kind !== 'agent-message' || ('form' in source && source.form === 'relay'))
+}
+
+/**
+ * Track only the latest task and native checkpoints carrying it, in forward Log order.
+ * @param events - Original committed Log events in ascending seq order.
+ * @param config - Enabled task source kinds; notices never establish a task.
+ * @returns Task/carrier seqs to intersect with the current Surface.
+ */
+export function latestTaskCarriers(events: Iterable<SessionEvent>, config: AcpConfig): ReadonlySet<SessionSeq> {
+  const carriers = new Set<SessionSeq>()
+  for (const event of events) {
+    if (event.type !== 'user/message') continue
+    if (isTaskInput(event.data, config)) {
+      carriers.clear()
+      carriers.add(event.seq)
+    } else if (event.data.source.kind === 'compact-checkpoint' && event.surfaceOp !== 'append'
+      && event.sourceEventSeqs?.some(seq => carriers.has(seq))) {
+      carriers.add(event.seq)
+    }
+  }
+  return carriers
+}
+
+/** Protect current instructions, the active Step, and the latest task's live representation. */
 export function protectedSeqs(
   surface: SurfaceCapture,
   identity: ExecutionIdentity,
@@ -22,7 +52,7 @@ export function protectedSeqs(
     throw new Error('ACP: the calling Step is no longer current')
   }
   const protectedNodes = new Set<SessionSeq>()
-  let latestTask: SessionSeq | undefined
+  const latestTaskNodes = latestTaskCarriers(surface.log, config)
   surface.seqs.forEach((seq, index) => {
     const event = surface.events[index]
     const message = surface.messages[index]
@@ -31,15 +61,8 @@ export function protectedSeqs(
         && 'form' in message.source && message.source.form === 'instructions')) {
       protectedNodes.add(seq)
     }
-    if (message?.role !== 'user') return
-    const source = message.source
-    if ('form' in source && source.form === 'notice') return
-    const kind: string = source.kind
-    if (!config.taskSourceKinds.includes(kind)) return
-    if (kind === 'agent-message' && (!('form' in source) || source.form !== 'relay')) return
-    if (latestTask === undefined || seq > latestTask) latestTask = seq
+    if (latestTaskNodes.has(seq)) protectedNodes.add(seq)
   })
-  if (latestTask !== undefined) protectedNodes.add(latestTask)
   return protectedNodes
 }
 

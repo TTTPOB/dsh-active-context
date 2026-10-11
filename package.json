@@ -7,7 +7,12 @@
   "types": "dist/index.d.ts",
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "files": ["dist", "README.md"],
-  "scripts": { "build": "tsc -p tsconfig.json", "test": "vitest run", "check": "pnpm build && pnpm test" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node tests/acceptance/run.mjs",
+    "typecheck:source": "node tests/acceptance/typecheck.mjs",
+    "check": "pnpm --config.verify-deps-before-run=false typecheck:source && pnpm --config.verify-deps-before-run=false test"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "4.0.4",
     "@deepseek-ai/dsh-agent": "0.1.7-rc.2",
