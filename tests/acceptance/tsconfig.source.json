@@ -1,0 +1,9 @@
+{
+  "extends": "../../../deepseek-harness/tsconfig.base.json",
+  "include": [
+    "./**/*.ts",
+    "../../src/**/*.ts",
+    "../../../dsh-session-tools/src/**/*.ts",
+    "../../../deepseek-harness/**/*.ts"
+  ]
+}
