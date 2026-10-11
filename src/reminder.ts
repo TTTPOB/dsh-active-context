@@ -3,11 +3,12 @@ import type { Context } from '@deepseek-ai/cordis'
 import { boundContextSummary, createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, SessionSeq as SessionSeqType } from '@deepseek-ai/dsh-session'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import { buildContextMap } from 'dsh-session-tools/context-map'
 import type { ContextMapNode, ContextMapOutput } from 'dsh-session-tools/context-map'
 import type { AcpConfig, PreStepFrame, ReminderBasicConfig, ReminderHooks } from './types.ts'
+import { latestTaskCarriers } from './protection.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -43,55 +44,34 @@ function fits(ctx: Context, config: AcpConfig, message: UserMessage): boolean {
     && Buffer.byteLength(JSON.stringify(message), 'utf8') <= config.reminderMaxBytes
 }
 
-/** Protect the latest task node, not all completed steps following that task. */
-function latestTaskIndex(session: Session, config: AcpConfig): number {
-  let taskIndex = -1
-  for (let index = session.surface.nodes.length - 1; index >= 0; index--) {
-    const seq = session.surface.nodes[index]!
-    const event = session.eventAt(seq)!
-    const message = session.deriveEventMessage(event)
-    const kind: string | undefined = message?.source.kind
-    const form = message !== null && 'form' in message.source ? message.source.form : undefined
-    if (message?.role === 'user' && form !== 'notice'
-      && config.taskSourceKinds.includes(message.source.kind)
-      && (kind !== 'agent-message' || form === 'relay')) {
-      taskIndex = index
-      break
-    }
-  }
-  return taskIndex
-}
-
-function standaloneCandidate(session: Session, seq: ReturnType<typeof SessionSeq>, index: number, taskIndex: number): boolean {
+function standaloneCandidate(session: Session, seq: SessionSeqType, taskCarriers: ReadonlySet<SessionSeqType>): boolean {
   const message = session.deriveEventMessage(session.eventAt(seq)!)
-  return index !== taskIndex && message !== null
+  return !taskCarriers.has(seq) && message !== null
     && message.role !== 'system' && message.role !== 'developer' && message.role !== 'tool'
     && (!('form' in message.source) || message.source.form !== 'instructions')
     && !message.content.some(block => block.type === 'tool-call')
 }
 
 /** Select only old standalone messages; paired tools and live instructions are never suggested. */
-function suggestedNodes(session: Session, map: ContextMapOutput, frame: PreStepFrame, config: AcpConfig): ContextMapNode[] {
-  const taskIndex = latestTaskIndex(session, config)
+function suggestedNodes(session: Session, map: ContextMapOutput, frame: PreStepFrame, config: AcpConfig, taskCarriers: ReadonlySet<SessionSeqType>): ContextMapNode[] {
   const selected: ContextMapNode[] = []
   for (const node of map.nodes) {
     if (selected.length >= config.reminderMaxRegions) break
     if ((node.navigation.turn === frame.turn && node.navigation.step === frame.step)
       || selected.at(-1)?.surface_index === node.surface_index - 1
-      || !standaloneCandidate(session, SessionSeq(node.seq), node.surface_index, taskIndex)) continue
+      || !standaloneCandidate(session, SessionSeq(node.seq), taskCarriers)) continue
     selected.push(node)
   }
   return selected
 }
 
 /** Sample the current Session and the shared map in one synchronous read interval. */
-function mapForNotice(ctx: Context, frame: PreStepFrame, config: AcpConfig, measurement: TokenMeasurement): ContextMapOutput {
+function mapForNotice(ctx: Context, frame: PreStepFrame, config: AcpConfig, measurement: TokenMeasurement, taskCarriers: ReadonlySet<SessionSeqType>): ContextMapOutput {
   const session = frame.agent.session
   const cut = session.seq
   const projections = ctx.get('sessionProjections')?.snapshot(session, ['contextPressure', 'contextBreakdown'])
   const limit = Math.max(1, config.reminderMaxRegions * 2)
-  const taskIndex = latestTaskIndex(session, config)
-  const first = session.surface.nodes.find((seq, index) => standaloneCandidate(session, seq, index, taskIndex))
+  const first = session.surface.nodes.find(seq => standaloneCandidate(session, seq, taskCarriers))
   return buildContextMap(session, {
     source: 'live',
     cursor: cut === 0 ? -1 : SessionSeq(cut - 1),
@@ -122,8 +102,9 @@ function notice(ctx: Context, frame: PreStepFrame, config: AcpConfig, measuremen
   const withText = (text: string) => freezeMessage({ ...short, content: [{ type: 'text' as const, text }] })
   const pressureOnly = withText(heading)
   if (config.reminderMaxRegions === 0) return fits(ctx, config, pressureOnly) ? pressureOnly : short
-  const map = mapForNotice(ctx, frame, config, measurement)
-  const nodes = suggestedNodes(frame.agent.session, map, frame, config)
+  const taskCarriers = latestTaskCarriers(frame.agent.session.snapshotEvents(), config)
+  const map = mapForNotice(ctx, frame, config, measurement, taskCarriers)
+  const nodes = suggestedNodes(frame.agent.session, map, frame, config, taskCarriers)
   if (nodes.length === 0) return fits(ctx, config, pressureOnly) ? pressureOnly : short
   const render = (count: number, previewChars: number): UserMessage => withText(heading
     + `\n可先回读以下旧消息，准备摘要；保留当前任务与存活指令。\nsnapshot_ref=${JSON.stringify(map.snapshot_ref)}`

@@ -1,12 +1,44 @@
 import { describe, expect, it, vi } from 'vitest'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
-import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId, LlmError, CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { configFor, largeTask, notices, reminderFixture, replaceHistory } from './reminder-fixtures/fixture.ts'
 
 const body = (message: { content: readonly { type: string; text?: string }[] }) => message.content.map(block => block.text ?? '').join('\n')
 
 describe('post-native thresholds and complete pressure notice budgets', () => {
+  it('does not suggest the latest task carried by a real native overflow checkpoint', async () => {
+    const route = { provider: 'reminder', model: 'working', nudgeAtTokens: 5000, resetBelowTokens: 100 }
+    const fixture = await reminderFixture(configFor({ pressureRoutes: [route] }))
+    const { ctx, agent, adapter } = fixture
+    try {
+      adapter.summary = 'TASK-CARRIER retained latest task and constraints. '.repeat(60)
+      ctx.tools.register(defineContentToolFixture({ name: 'after_overflow', description: 'Continue after native overflow recovery', parameters: {},
+        async execute() { return [{ type: 'text', text: 'Recovered work result.' }] },
+      }))
+      ctx.on('session/event', (_session, event) => {
+        if (event.type === 'compaction/end') route.nudgeAtTokens = 250
+      })
+      adapter.reply = () => {
+        if (adapter.requests.length === 2) throw new LlmError('Overflow fixture', CONTEXT_WINDOW_EXCEEDED_CODE)
+        if (adapter.requests.length === 1 || adapter.requests.length === 3) return [{ type: 'tool-call', id: ToolCallId('after-overflow-' + adapter.requests.length), name: 'after_overflow', arguments: '{}' }]
+        if (adapter.requests.length === 4) return [{ type: 'text', text: 'Recovered task complete.' }]
+        throw new Error('Unexpected model request')
+      }
+      await fixture.run(largeTask)
+      expect(adapter.requests, JSON.stringify(agent.session.snapshotEvents().at(-1))).toHaveLength(4)
+      expect(adapter.summaryRequests).toHaveLength(1)
+      const originalTask = agent.session.snapshotEvents().find(event => event.type === 'user/message' && event.data.source.kind === 'user')!
+      expect(agent.session.surface.nodes).not.toContain(originalTask.seq)
+      const carrier = agent.session.snapshotEvents().find(event => event.type === 'user/message'
+        && event.data.source.kind === 'compact-checkpoint' && event.sourceEventSeqs?.includes(originalTask.seq))!
+      expect(agent.session.surface.nodes).toContain(carrier.seq)
+      expect(notices(agent.session)).toHaveLength(1)
+      expect(body(notices(agent.session)[0]!.data)).not.toContain('TASK-CARRIER')
+      expect(body(notices(agent.session)[0]!.data)).not.toContain('snapshot_ref')
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('triggers at exact S, does not rearm at exact R, and rearms strictly below R using real measurements', async () => {
     const route = { provider: 'reminder', model: 'working', nudgeAtTokens: 1000, resetBelowTokens: 200 }
     const fixture = await reminderFixture(configFor({ pressureRoutes: [route], reminderMaxRegions: 0 }))
