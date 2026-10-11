@@ -6,13 +6,13 @@
 
 主动压缩由当前工作模型选择已处理的历史并撰写摘要，宿主验证后替换完整节点区间。先取得地图、再引用 `snapshot_ref` 和 seq/edge 的协议，要求模型为定位承担额外工具回合、地图字段和预览成本。模型已掌握独特原文时，可以直接用原文表达区间边界。
 
-本 ADR 取代 [session-tools ADR 0004](<../../../dsh-session-tools/docs/adr/0004-context-map-and-metering.md>) 的模型地图设计，以及 [ACP ADR 0001](<0001-active-compaction-submission.md>) 的地图字段、取图与 freshness 协议和 [ACP ADR 0002](<0002-pressure-notices.md>) 的粗地图提醒设计。提交生命周期、保护、原生事务、计量和提醒去重继续遵循原 ADR；冲突处以本 ADR 为准。
+本 ADR 取代本包 [ADR 0001](<0001-active-compaction-submission.md>) 的地图字段、取图与 freshness 协议和 [ADR 0002](<0002-pressure-notices.md>) 的粗地图提醒设计。提交生命周期、保护、原生事务、计量和提醒去重继续遵循原 ADR；冲突处以本 ADR 为准。session-tools 的地图接口由其 [ADR 0005](<../../../dsh-session-tools/docs/adr/0005-context-map-retirement.md>)决定移除，并由该 ADR 取代其 ADR 0004。
 
 ## 决策
 
 ### 模型直接提交两个原文端点
 
-取消模型工具 `session_context_map`，取消以地图取得 `snapshot_ref` 和 seq/edge 作为压缩必经流程。map-specific 公共库和 API 随其消费者一并移除；底层 Query `captureSession`、tokenMeter 和现有 session/event read、search、trace 工具保留。
+ACP 移除对地图工具与公共地图库的依赖，取消以地图取得 `snapshot_ref` 和 seq/edge 作为压缩必经流程。session-tools 移除 `session_context_map` 及 map-specific 公共库/API 的决策由其 [ADR 0005](<../../../dsh-session-tools/docs/adr/0005-context-map-retirement.md>)定义；底层 Query `captureSession`、tokenMeter 和现有 session/event read、search、trace 工具保留。
 
 `context_compress` 只操作当前调用会话。每个区间直接给出两个 literal 短原文端点和模型撰写的非空 `summary`。接口采用 `range` 的两个 endpoint，各含 `text` 和可选 `role`；`role` 复用派生消息的 actual role 枚举，不新增来源、活动或工具名称选择器。字段命名在接口收敛时与全部消费者同步，语义以本 ADR 为准。
 
