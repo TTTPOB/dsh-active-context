@@ -19,7 +19,7 @@ Query 按所属仓库维护英文、中文及一致性记录；其他 ADR 使用
 
 `session_context_map` 每次采样当前 Surface，返回有界概览和当前节点窗口。窗口查询重新采样；anchor 已被替换时要求重新定位。节点位置按 Surface 顺序解释，不能按 seq 大小推断连续区间。
 
-地图返回的 `snapshot_ref` 包含 `session_id`、包含上界事件的 `read_seq` 和诊断用 `map_id`。回读节点时使用节点自己的 `seq/read_seq`，而不是快照读取上界。预览来自 Session 消息解释，节点估价来自 token-meter 的原事件折叠；二者按 seq 对齐，但所依据的文本可能不同。
+地图返回的 `snapshot_ref` 包含 `session_id`、包含上界事件的 `read_seq` 和诊断用 `map_id`。回读节点时使用节点自己的 `seq/read_seq`，而不是快照读取上界。预览来自 Session 消息解释，节点计量来自 token-meter 的原事件折叠；二者按 seq 对齐，但所依据的文本可能不同。
 
 `getContextMap` 在采样前检查调用方 scope，并在同步回调中重新核对。纯函数 `buildContextMap` 只构造 DTO，授权及同次采样由调用方负责。地图不保存跨调用快照缓存；Query 的 prepared Session 缓存仍按源版本和准备模式管理。首次 cold 准备和计量可能有全量成本，缩小窗口主要减少输出。
 
