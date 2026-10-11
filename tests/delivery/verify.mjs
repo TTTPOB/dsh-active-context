@@ -34,7 +34,7 @@ let consumer
 try {
   // Test-local grants are limited to these explicit exact package/runtime combinations.
   const accepted = {
-    'dsh-active-context': '0.1.0',
+    'dsh-active-context': JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version,
     '@deepseek-ai/dsh-session-query': '0.1.7-rc.2-fork4',
     '@deepseek-ai/dsh-session-query-sqlite': '0.1.7-rc.2-fork6',
   }
