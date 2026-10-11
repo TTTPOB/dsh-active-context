@@ -7,17 +7,8 @@ import type { SessionEvent, SessionId, SessionSeq } from '@deepseek-ai/dsh-sessi
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 
-/** Inclusive log read upper bound from the independently generated context map. */
-export interface SnapshotRef {
-  readonly session_id: string
-  readonly read_seq: number
-}
-
-/** Boundary beside an existing Surface node; seq is never a Surface ordinal. */
-export interface RegionAnchor {
-  readonly seq: number
-  readonly edge: 'before' | 'after'
-}
+import type { SnapshotRef, Anchor as RegionAnchor } from 'dsh-session-tools/context-map'
+export type { SnapshotRef, Anchor as RegionAnchor } from 'dsh-session-tools/context-map'
 
 /** One model-written replacement. */
 export interface RegionInput {
@@ -30,7 +21,6 @@ export interface RegionInput {
 /** One independently submitted native/both tool call. */
 export interface CompressInput {
   readonly snapshot_ref: SnapshotRef
-  readonly map_id: string
   readonly regions: readonly RegionInput[]
 }
 
@@ -100,6 +90,8 @@ export interface RegionFact {
   compactionId?: CompactionId
   replacementSeq?: SessionSeq
   result?: CompactionResult
+  replacementRouteTokens?: number
+  replacementHeuristicTokens?: number
   error?: string
   readonly shadowedSeqs: readonly SessionSeq[]
   readonly shadowedRouteTokens: number
