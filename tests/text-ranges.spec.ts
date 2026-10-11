@@ -1,9 +1,9 @@
 import { expect, it, vi } from 'vitest'
 import { createMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import { preflightRegions } from '../../src/regions.ts'
-import type { TextEndpoint } from '../../src/types.ts'
-import { providerFixture } from '../provider-fixture.ts'
+import { preflightRegions } from '../src/regions.ts'
+import type { TextEndpoint } from '../src/types.ts'
+import { providerFixture } from './provider-fixture.ts'
 
 const region = (start: TextEndpoint, end = start) => ({ range: [start, end], summary: 'Preserve the completed conclusion.' })
 

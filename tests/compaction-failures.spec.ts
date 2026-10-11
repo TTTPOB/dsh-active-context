@@ -3,10 +3,10 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
-import type { CompressInput } from '../../src/types.ts'
-import { loadActiveContext } from './composition.ts'
-import { createLoopFixture, runTurn, seedHistory } from './fixtures.ts'
-import { selection } from './compression-fixture.ts'
+import type { CompressInput } from '../src/types.ts'
+import { loadActiveContext } from './loop-fixtures/loader.ts'
+import { createLoopFixture, runTurn, seedHistory } from './loop-fixtures/agent-loop.ts'
+import { selection } from './loop-fixtures/compression-input.ts'
 
 it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as const)(
   'keeps real native commits and the original tool pair after %s', async mode => {

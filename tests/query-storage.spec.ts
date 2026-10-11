@@ -9,7 +9,7 @@ import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import type { SessionCaptureReader, SessionObservation } from '@deepseek-ai/dsh-session-query'
 import { expect, it, vi } from 'vitest'
-import { createLoopFixture, seedHistory } from './fixtures.ts'
+import { createLoopFixture, seedHistory } from './loop-fixtures/agent-loop.ts'
 
 /** Detached consumer sample; the only assertion to Session stays inside the capture callback. */
 function sample(meter: TokenMeter, reader: SessionCaptureReader, observation: SessionObservation) {
@@ -26,7 +26,7 @@ function sample(meter: TokenMeter, reader: SessionCaptureReader, observation: Se
 }
 
 it('captures a real Loop live Session and its persisted cold copy without activation or writes', async ({ onTestFinished }) => {
-  const scratch = fileURLToPath(new URL('../../.scratch/text-anchors/tests/', import.meta.url))
+  const scratch = fileURLToPath(new URL('../.scratch/text-anchors/tests/', import.meta.url))
   await mkdir(scratch, { recursive: true })
   const root = await mkdtemp(scratch + 'query-storage-')
   onTestFinished(() => rm(root, { recursive: true, force: true }))

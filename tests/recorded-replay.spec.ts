@@ -6,13 +6,13 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { installLlmReplay, type ReplayHandle } from '@deepseek-ai/dsh-llm-replay'
 import { normalizeSessionSnapshots } from '@deepseek-ai/dsh-session-snapshot'
 import { Session } from '@deepseek-ai/dsh-session'
-import { eventLines, toHeaderLine } from '../../../deepseek-harness/packages/session/session-persistence-jsonl/src/format.ts'
+import { eventLines, toHeaderLine } from '../../deepseek-harness/packages/session/session-persistence-jsonl/src/format.ts'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
-import type { CompressInput } from '../../src/types.ts'
-import { loadActiveContext } from './composition.ts'
-import { selection, summaries } from './compression-fixture.ts'
-import { createLoopFixture, HISTORY, runTurn, seedHistory } from './fixtures.ts'
+import type { CompressInput } from '../src/types.ts'
+import { loadActiveContext } from './loop-fixtures/loader.ts'
+import { selection, summaries } from './loop-fixtures/compression-input.ts'
+import { createLoopFixture, HISTORY, runTurn, seedHistory } from './loop-fixtures/agent-loop.ts'
 
 const task = 'Finish the old analyses while preserving the middle constraint.'
 function jsonl(session: Session): string {
@@ -20,7 +20,7 @@ function jsonl(session: Session): string {
 }
 
 it('replays recorded ACP model streams using existing llm-replay and compares complete logs using session-snapshot', async ({ onTestFinished }) => {
-  const scratch = fileURLToPath(new URL('../../.scratch/text-anchors/tests/', import.meta.url))
+  const scratch = fileURLToPath(new URL('../.scratch/text-anchors/tests/', import.meta.url))
   await mkdir(scratch, { recursive: true })
   const root = await mkdtemp(join(scratch, 'recorded-snapshot-'))
   onTestFinished(() => rm(root, { recursive: true, force: true }))

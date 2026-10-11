@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const harness = fileURLToPath(new URL('../../../deepseek-harness/', import.meta.url))
+const harness = fileURLToPath(new URL('../../deepseek-harness/', import.meta.url))
 const archive = resolve(process.argv[2] ?? join(harness, 'dist/daily-driver/deepseek-ai-dsh-session-query-0.1.7-rc.2-fork4.tgz'))
 await stat(archive)
 // mkdtemp exclusively allocates a new owned path; existing peer links are never changed.

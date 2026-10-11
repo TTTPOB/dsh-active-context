@@ -29,12 +29,12 @@
 ACP 与 Harness 源码位于同一父目录，Harness 提供 Vitest、TypeScript、测试依赖及 vendor 声明产物。在 ACP 根执行：
 
 ```sh
-node tests/acceptance/typecheck.mjs
-node tests/acceptance/run.mjs text-ranges regions protection provider active-loop active-failures recorded-replay guard hide reminder
+node tests/typecheck.mjs
+node tests/run.mjs text-ranges regions protection provider compaction-loop compaction-failures recorded-replay guard hide reminder
 ```
 
-[严格类型检查](<../tests/acceptance/typecheck.mjs>)检查 ACP 源码及测试，不过滤诊断；[测试入口](<../tests/acceptance/run.mjs>)使用源码路径别名和既有 Loader、Loop、delivery helper。测试临时目录自动清理，源码验证不替代[打包后隔离安装](<delivery.md>)。
+[严格类型检查](<../tests/typecheck.mjs>)检查 ACP 源码及测试，不过滤诊断；[测试入口](<../tests/run.mjs>)使用源码路径别名和既有 Loader、Loop、delivery helper。测试临时目录自动清理，源码验证不替代[打包后隔离安装](<delivery.md>)。
 
-关键行为包括：字面唯一性、缺失与歧义、同节点与多 block、当前摘要替换、全批拒绝无副作用、完整工具配对和保护、独立调用 guard、双非相邻原生提交、目标变化停止、错误结算事实、工具对清理与 replay，以及提醒计量、去重和恢复。模型可见输出通过[录制回放](<../tests/acceptance/recorded-replay.spec.ts>)消费真实嵌入 assistant streams、比较完整规范化 Log，并检查下一请求和最终回答。
+关键行为包括：字面唯一性、缺失与歧义、同节点与多 block、当前摘要替换、全批拒绝无副作用、完整工具配对和保护、独立调用 guard、双非相邻原生提交、目标变化停止、错误结算事实、工具对清理与 replay，以及提醒计量、去重和恢复。模型可见输出通过[录制回放](<../tests/recorded-replay.spec.ts>)消费真实嵌入 assistant streams、比较完整规范化 Log，并检查下一请求和最终回答。
 
 源码、成品解析和真实模型质量分别验证。实际预算与成本需结合工作路由、usage、缓存及延迟评估，不能由确定性 fixture 推断固定收益。

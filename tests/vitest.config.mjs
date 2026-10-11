@@ -1,10 +1,10 @@
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { createRequire } from 'node:module'
-import { standardDecoratorPlugin, vitestExecArgv } from '../../../deepseek-harness/vitest.shared.ts'
+import { standardDecoratorPlugin, vitestExecArgv } from '../../deepseek-harness/vitest.shared.ts'
 
 const path = relative => fileURLToPath(new URL(relative, import.meta.url))
-const harness = path('../../../deepseek-harness/')
+const harness = path('../../deepseek-harness/')
 const ts = createRequire(resolve(harness, 'package.json'))('typescript')
 const config = ts.readConfigFile(resolve(harness, 'tsconfig.base.json'), ts.sys.readFile)
 if (config.error) throw new Error(ts.flattenDiagnosticMessageText(config.error.messageText, '\n'))
@@ -19,18 +19,18 @@ const sourceAliases = Object.entries(config.config.compilerOptions.paths).map(([
 
 export default {
   root: harness,
-  cacheDir: path('../../.scratch/text-anchors/vite/'),
+  cacheDir: path('../.scratch/text-anchors/vite/'),
   plugins: [standardDecoratorPlugin()],
   resolve: {
     alias: [
-      { find: /^vitest$/, replacement: path('../../../deepseek-harness/node_modules/vitest/dist/index.js') },
+      { find: /^vitest$/, replacement: path('../../deepseek-harness/node_modules/vitest/dist/index.js') },
       ...sourceAliases,
     ],
   },
   test: {
     include: [
-      path('../**/*.spec.ts'),
-      path('../../../deepseek-harness/packages/session-query/session-query/tests/capture-types.spec.ts'),
+      path('./**/*.spec.ts'),
+      path('../../deepseek-harness/packages/session-query/session-query/tests/capture-types.spec.ts'),
     ],
     execArgv: vitestExecArgv,
     pool: 'forks',

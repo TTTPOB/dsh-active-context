@@ -14,8 +14,8 @@
     "build": "tsc -p tsconfig.json",
     "prepack": "pnpm --config.verify-deps-before-run=false build",
     "test:delivery": "node tests/delivery/run.mjs",
-    "test": "node tests/acceptance/run.mjs",
-    "typecheck:source": "node tests/acceptance/typecheck.mjs",
+    "test": "node tests/run.mjs",
+    "typecheck:source": "node tests/typecheck.mjs",
     "check": "pnpm --config.verify-deps-before-run=false typecheck:source && pnpm --config.verify-deps-before-run=false test"
   },
   "peerDependencies": {

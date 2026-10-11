@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { createLoopFixture, HISTORY, runTurn, seedHistory } from './fixtures.ts'
+import { createLoopFixture, HISTORY, runTurn, seedHistory } from './loop-fixtures/agent-loop.ts'
 
 // This validates the integration substrate, not ACP behavior or real-model task quality.
-describe('shared acceptance substrate: production Loop and Session replay', () => {
+describe('production Loop tool execution and Session replay', () => {
   it('executes tools, consumes their real results, then resumes from the same durable history', async () => {
     const writes: string[] = []
     const { ctx, adapter, agent } = await createLoopFixture([

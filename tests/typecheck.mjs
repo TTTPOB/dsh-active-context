@@ -2,8 +2,8 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const harness = fileURLToPath(new URL('../../../deepseek-harness/', import.meta.url))
-const acp = fileURLToPath(new URL('../../', import.meta.url))
+const harness = fileURLToPath(new URL('../../deepseek-harness/', import.meta.url))
+const acp = fileURLToPath(new URL('../', import.meta.url))
 const require = createRequire(join(harness, 'package.json'))
 const ts = require('typescript')
 const config = ts.readConfigFile(join(harness, 'tsconfig.base.json'), ts.sys.readFile)

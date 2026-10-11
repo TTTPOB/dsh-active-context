@@ -4,11 +4,11 @@ import { Session, SessionId, type SessionEvent, type SessionSeq } from '@deepsee
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
-import { loadActiveContext } from './composition.ts'
-import type { CompressInput } from '../../src/types.ts'
-import { createLoopFixture, HISTORY, runTurn, seedHistory } from './fixtures.ts'
+import { loadActiveContext } from './loop-fixtures/loader.ts'
+import type { CompressInput } from '../src/types.ts'
+import { createLoopFixture, HISTORY, runTurn, seedHistory } from './loop-fixtures/agent-loop.ts'
 
-import { selection, summaries } from './compression-fixture.ts'
+import { selection, summaries } from './loop-fixtures/compression-input.ts'
 
 it('recovers from mixed task text by directly retrying literal regions in a separate native response', async () => {
   let input: CompressInput | undefined
