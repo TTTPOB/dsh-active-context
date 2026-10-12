@@ -148,11 +148,10 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
       expect(body(message)).toBe(
         'Host context maintenance notice: context pressure is high.\n'
         + `T≈${measurement.totalTokens} tokens; native automatic compaction threshold H=80000.\n`
-        + `Measurement basis: estimated; baseline=${measurement.baseline.tokens}; delta=${measurement.surfaceDeltaTokens}.\n\n`
         + 'Use context_compress to summarize completed work that no longer needs verbatim history. '
         + 'Prefer a complete multi-message work phase over isolated reports. '
         + 'Select 1–3 non-adjacent regions using distinctive literal text endpoints; read back history if needed. '
-        + 'Exclude protected nodes throughout each range and keep tool-call/result pairs complete. '
+        + 'Exclude protected nodes; tool pairs are completed automatically before validation. '
         + 'Submit one standalone native/both call, with no task prose or other tools.',
       )
       expect(message.source).toMatchObject({ summary: 'High context pressure; summarize completed history.' })

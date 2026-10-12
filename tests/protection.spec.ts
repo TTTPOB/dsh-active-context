@@ -57,7 +57,7 @@ describe('active context protection', () => {
       const block = message.content.find(block => block.type === 'text')!
       if (block.type !== 'text') throw new Error('Checkpoint has no text')
       const input = fixture.input([{ range: [{ text: block.text }, { text: block.text }], summary: 'replacement' }])
-      await expect(preflightRegions(fixture.ctx, fixture.agent, identity, input, fixture.config)).rejects.toThrow(/latest_task_checkpoint.*carries the latest request driving the current Turn/)
+      await expect(preflightRegions(fixture.ctx, fixture.agent, identity, input, fixture.config)).resolves.toMatchObject({ facts: [expect.objectContaining({ status: 'failed', error: expect.stringMatching(/latest_task_checkpoint.*carries the latest request driving the current Turn/) })] })
     } finally { await fixture.dispose() }
   })
 

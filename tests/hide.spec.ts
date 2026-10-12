@@ -78,11 +78,25 @@ describe('successful compression tool-pair maintenance', () => {
     expect(f.state.hideCandidates.has(f.agent)).toBe(false)
   })
 
-  it('keeps partial results and assistant task text rather than creating cleanup candidates', async () => {
-    const partial = await create({ body(exec, state) { state.facts.set(exec, facts('partial')) } })
+  it('cleans a confirmed partial result with complete ranges/status/errors but retains assistant task text', async () => {
+    const partial = await create({ body(exec, state) { const value = facts('partial'); value.regions[1]!.error = 'Stopped before retry'; state.facts.set(exec, value) } })
     const pair = await partial.manual()
     expect(pair.result.isError).toBe(false)
-    expect(partial.state.hideCandidates.has(partial.agent)).toBe(false)
+    expect(partial.state.hideCandidates.has(partial.agent)).toBe(true)
+    await partial.hide.cleanupBeforeNative(frame(partial.agent))
+    const replacement = partial.agent.session.snapshotEvents().at(-1)!
+    if (replacement.type !== 'user/message') throw new Error('missing partial status record')
+    const block = replacement.data.content[0]!
+    if (block.type !== 'text') throw new Error('missing partial status text')
+    const record = JSON.parse(block.text.slice(block.text.indexOf('{')))
+    expect(record.regions.map((region: { status: string }) => region.status)).toEqual(['committed', 'not_attempted'])
+    expect(record.regions.map((region: { range: unknown }) => region.range)).toEqual(facts('partial').regions.map(region => region.range))
+    expect(record.log).toEqual({ assistant_seq: pair.assistant.seq, tool_call_seq: pair.toolCall.seq, result_seq: pair.resultEvent.seq })
+    expect(record.retry).toContain('only failed/not_attempted')
+    expect(record.regions[1].error).toBe('Stopped before retry')
+    expect(record).not.toHaveProperty('summary')
+    expect(partial.agent.session.eventAt(pair.assistant.seq)).toEqual(pair.assistant)
+    expect(partial.agent.session.eventAt(pair.resultEvent.seq)).toEqual(pair.resultEvent)
     const text = await create()
     expect((await text.manual([{ type: 'text', text: 'task conclusion' }, call()])).result.isError).toBe(true)
     expect(text.state.hideCandidates.has(text.agent)).toBe(false)
@@ -127,11 +141,38 @@ describe('successful compression tool-pair maintenance', () => {
     expect(session.snapshotEvents().filter(event => event.type === 'compaction/prune')).toHaveLength(1)
   })
 
-  it('fails before either append if the complete confirmation cannot fit its budget', async () => {
+  it('retains the original pair without either append when the complete confirmation cannot fit', async () => {
     const f = await create({ config: { confirmationMaxBytes: 1 } })
     const pair = await f.manual()
-    expect(() => f.hide.cleanupBeforeNative(frame(f.agent))).toThrow('confirmation budget')
+    expect(() => f.hide.cleanupBeforeNative(frame(f.agent))).not.toThrow()
     expect(f.agent.session.surface.nodes).toEqual([pair.assistant.seq, pair.resultEvent.seq])
     expect(f.agent.session.snapshotEvents().some(event => event.type === 'compaction/prune')).toBe(false)
   })
+})
+
+it('keeps complete long endpoints in the original pair when the status record exceeds a byte or token budget', async () => {
+  for (const budget of [{ confirmationMaxBytes: 1000 }, { confirmationMaxTokens: 100 }]) {
+    const endpoint = '长原文 '.repeat(1000)
+    const f = await create({ config: budget, body(exec, state) {
+      const value = facts()
+      value.regions[0] = { ...value.regions[0]!, range: [{ text: endpoint, role: 'assistant' }, { text: endpoint }] }
+      state.facts.set(exec, value)
+    } })
+    const originalCall = { ...call(), arguments: JSON.stringify({ regions: [{ range: [{ text: endpoint }, { text: endpoint }], summary: 'Do not repeat this authored summary.' }] }) }
+    const pair = await f.manual([originalCall])
+    await f.hide.cleanupBeforeNative(frame(f.agent))
+    expect(f.agent.session.surface.nodes).toEqual([pair.assistant.seq, pair.resultEvent.seq])
+    expect(f.agent.session.eventAt(pair.assistant.seq)).toEqual(pair.assistant)
+    expect(f.agent.session.snapshotEvents().some(event => event.type === 'compaction/prune')).toBe(false)
+  }
+})
+
+it('does not clean a batch containing an unconfirmed commit even alongside a confirmed one', async () => {
+  const f = await create({ body(exec, state) {
+    const value = facts('partial'); value.regions[1]!.status = 'unconfirmed'; state.facts.set(exec, value)
+  } })
+  const pair = await f.manual()
+  expect(f.state.hideCandidates.has(f.agent)).toBe(false)
+  await f.hide.cleanupBeforeNative(frame(f.agent))
+  expect(f.agent.session.surface.nodes).toEqual([pair.assistant.seq, pair.resultEvent.seq])
 })

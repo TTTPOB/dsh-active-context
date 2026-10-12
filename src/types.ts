@@ -41,7 +41,6 @@ export interface AcpConfig {
   readonly resultMaxBytes: number
   readonly confirmationMaxTokens: number
   readonly confirmationMaxBytes: number
-  readonly confirmationMaxIds: number
   readonly reminderMaxTokens: number
   readonly reminderMaxBytes: number
   readonly taskSourceKinds: readonly string[]
@@ -65,10 +64,11 @@ export interface ExecutionIdentity {
   readonly model: string
 }
 
-/** Whole-batch preflight fixes the actual events and their interpreted messages. */
+/** Preflight fixes one expanded selection and its interpreted messages. */
 export interface ResolvedRegion {
   readonly input: RegionInput
   readonly inputIndex: number
+  readonly expanded: boolean
   readonly start: SessionSeq
   readonly end: SessionSeq
   readonly startIndex: number
@@ -84,6 +84,8 @@ export interface ResolvedRegion {
 /** Actual replacement evidence remains available even if native closing throws. */
 export interface RegionFact {
   readonly inputIndex: number
+  readonly range: readonly TextEndpoint[]
+  expanded: boolean
   status: 'not_attempted' | 'committed' | 'committed_with_error' | 'failed' | 'unconfirmed'
   compactionId?: CompactionId
   replacementSeq?: SessionSeq
@@ -111,7 +113,11 @@ export interface HideCandidate {
   readonly assistantSeq: SessionSeq
   readonly toolCallSeq: SessionSeq
   readonly resultSeq: SessionSeq
-  readonly compactionIds: readonly CompactionId[]
+  readonly facts: {
+    readonly status: BatchFacts['status']
+    readonly regions: readonly Pick<RegionFact, 'inputIndex' | 'status' | 'range' | 'expanded' | 'error'>[]
+    readonly stopReason?: string
+  }
 }
 
 /** Maps are owned by the single composition effect, not persistent queues. */

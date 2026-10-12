@@ -19,7 +19,7 @@ describe('active region batches', () => {
 
   it('preserves final cancellation details and committed metering facts in one bounded result', () => {
     const rendered = renderBatchFacts({ status: 'partial', executionOrder: [0], regions: [{
-      inputIndex: 0, status: 'committed_with_error', compactionId: CompactionId('native-id'),
+      inputIndex: 0, range: [{ text: 'original' }, { text: 'original' }], expanded: false, status: 'committed_with_error', compactionId: CompactionId('native-id'),
       replacementSeq: SessionSeq(10), shadowedSeqs: [SessionSeq(2)],
       shadowedRouteTokens: 200, shadowedHeuristicTokens: 180,
       replacementRouteTokens: 50, replacementHeuristicTokens: 45,
@@ -49,18 +49,19 @@ describe('active region batches', () => {
     } finally { await fixture.dispose() }
   })
 
-  it('rejects the full batch before writing when any target is protected or summaries exceed the total budget', async () => {
+  it('reports protected regions independently while global summary budgets reject before writing', async () => {
     const fixture = await providerFixture()
     try {
       const before = fixture.session.seq
       const protectedBatch = fixture.input([{ ...fixture.input().regions[0]!, range: [{ text: 'current task' }, { text: 'current task' }] }])
-      await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, protectedBatch, fixture.config)).rejects.toThrow(/no regions were committed.*latest_task_input.*current task/)
+      const protectedResult = await preflightRegions(fixture.ctx, fixture.agent, fixture.identity, protectedBatch, fixture.config)
+      expect(protectedResult.facts[0]).toMatchObject({ inputIndex: 0, status: 'failed', error: expect.stringMatching(/latest_task_input.*current task/) })
       await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, fixture.input(), { ...fixture.config, summaryMaxBytes: 20 })).rejects.toThrow(/total budget/)
       expect(fixture.session.seq).toBe(before)
     } finally { await fixture.dispose() }
   })
 
-  it('retains a committed tail and stops before the head on a later native failure', async () => {
+  it('does not swallow an unknown native fault after a committed tail', async () => {
     const fixture = await providerFixture()
     try {
       const original = fixture.engine.compactPrewritten.bind(fixture.engine)
@@ -68,15 +69,15 @@ describe('active region batches', () => {
         if (region.inputIndex === 0) throw new Error('head native failure')
         return original(region, ...args)
       })
-      const { facts } = await fixture.submit()
-      expect(facts.status).toBe('partial')
-      expect(facts.regions.map((item: { status: string }) => item.status)).toEqual(['failed', 'committed'])
+      const { result } = await fixture.submit()
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.content)).toContain('head native failure')
       expect(fixture.session.surface.nodes).toContain(fixture.old[0])
       expect(fixture.session.surface.nodes).not.toContain(fixture.old[2])
     } finally { await fixture.dispose() }
   })
 
-  it('stops when a remaining target projection changes after preflight even at the same token length', async () => {
+  it('rejects a region when its target projection changes after preflight even at the same token length', async () => {
     const fixture = await providerFixture()
     try {
       let changed = false
@@ -110,12 +111,11 @@ describe('active region batches', () => {
         await original(region, ...args)
         throw new Error('after durable replacement')
       })
-      const { facts } = await fixture.submit()
-      expect(facts.status).toBe('partial')
-      expect(facts.execution_order).toEqual([1])
-      expect(facts.regions.map((item: { status: string }) => item.status)).toEqual(['not_attempted', 'committed_with_error'])
-      expect(facts.regions[1].replacement_seq).toBeTypeOf('number')
-      expect(facts.regions[1].compaction_id).toBeTypeOf('string')
+      const { result } = await fixture.submit()
+      expect(result.isError).toBe(true)
+      expect(JSON.stringify(result.content)).toContain('after durable replacement')
+      expect(fixture.session.surface.nodes).toContain(fixture.old[0])
+      expect(fixture.session.surface.nodes).not.toContain(fixture.old[2])
     } finally { await fixture.dispose() }
   })
 })

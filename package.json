@@ -1,6 +1,6 @@
 {
   "name": "dsh-active-context",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Model-authored active context compaction for DeepSeek Harness",
   "type": "module",
   "packageManager": "pnpm@11.24.0",

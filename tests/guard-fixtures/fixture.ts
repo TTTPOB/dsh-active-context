@@ -21,7 +21,7 @@ export function facts(status: BatchFacts['status'] = 'batch_success'): BatchFact
   return {
     status, executionOrder: [1, 0],
     regions: [0, 1].map(index => ({
-      inputIndex: index,
+      inputIndex: index, range: [{ text: `original ${index}`, role: 'assistant' as const }, { text: `original ${index}` }], expanded: false,
       status: status === 'batch_success' || index === 0 ? 'committed' : 'not_attempted',
       compactionId: CompactionId(`compact-${index}`), replacementSeq: SessionSeq(10 + index),
       shadowedSeqs: [SessionSeq(index + 1)], shadowedRouteTokens: 100, shadowedHeuristicTokens: 100,

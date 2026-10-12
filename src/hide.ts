@@ -1,4 +1,4 @@
-/** Final-result observation and next-step replacement of an exact successful tool pair. */
+/** Final-result observation and next-step archival of a confirmed full/partial tool pair. */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { boundContextSummary, createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
@@ -13,7 +13,7 @@ interface ObservedStep {
   call?: SessionEvent<'tool/call'>
   callCount: number
   ended: boolean
-  final?: { readonly exec: Readonly<ToolExecution>; readonly compactionIds: HideCandidate['compactionIds'] } | undefined
+  final?: { readonly exec: Readonly<ToolExecution>; readonly facts: HideCandidate['facts'] } | undefined
 }
 
 interface ObservedPair {
@@ -30,31 +30,29 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate): UserMessage {
-  const ids = candidate.compactionIds.slice(0, config.confirmationMaxIds)
-  const make = (text: string) => createUserMessage({
-    content: [{ type: 'text' as const, text }],
-    source: { kind: 'acp-maintenance' as const, form: 'notice' as const, summary: boundContextSummary('Context compression committed; successful call and result archived.') },
-  })
-  const fits = (message: UserMessage) => Buffer.byteLength(JSON.stringify(message), 'utf8') <= config.confirmationMaxBytes
-    && ctx.tokenMeter.estimateMessage(message) <= config.confirmationMaxTokens
-  while (true) {
-    const omitted = candidate.compactionIds.length - ids.length
-    const text = `Context compression committed.${ids.length === 0 ? '' : ` Compaction IDs: ${ids.join(', ')}.`}`
-      + `${omitted === 0 ? '' : ` ${omitted} further IDs in Log.`}`
-      + ` Read Log seq ${candidate.assistantSeq}/${candidate.toolCallSeq}/${candidate.resultSeq} for the original call and result.`
-    const message = make(text)
-    if (fits(message)) return message
-    if (ids.length === 0) break
-    ids.pop()
+function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate): UserMessage | undefined {
+  const record = {
+    status: candidate.facts.status,
+    regions: candidate.facts.regions.map(fact => ({
+      input_index: fact.inputIndex, status: fact.status, range: fact.range, expanded: fact.expanded,
+      error: fact.error,
+    })),
+    stop_reason: candidate.facts.stopReason,
+    log: { assistant_seq: candidate.assistantSeq, tool_call_seq: candidate.toolCallSeq, result_seq: candidate.resultSeq },
+    retry: 'Reselect only failed/not_attempted regions using current text; committed original endpoints may no longer match.',
   }
-  const minimal = make(`Compression committed. Read Log seq ${candidate.toolCallSeq}/${candidate.resultSeq}.`)
-  if (fits(minimal)) return minimal
-  throw new Error('ACP: confirmation budget cannot fit the maintenance message and Log locator')
+  const message = createUserMessage({
+    content: [{ type: 'text', text: 'Context compression committed; original call/result archived. ' + JSON.stringify(record) }],
+    source: { kind: 'acp-maintenance', form: 'notice', summary: boundContextSummary('Context compression status; original call and result archived.') },
+  })
+  // Never truncate real endpoints or omit retry facts to fit the cleanup budget.
+  if (Buffer.byteLength(JSON.stringify(message), 'utf8') > config.confirmationMaxBytes
+    || ctx.tokenMeter.estimateMessage(message) > config.confirmationMaxTokens) return undefined
+  return message
 }
 
 /**
- * Record final successful results and prepare exact two-node pre-step maintenance.
+ * Record final results with confirmed commits and prepare exact two-node maintenance.
  * @param ctx - effect-owning context with token-meter and session observers.
  * @param config - complete short-confirmation budgets.
  * @param state - composition-owned identities, execution facts, and candidates.
@@ -76,10 +74,14 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState): H
     const facts = state.facts.get(exec)
     const step = steps.get(exec.agent.session)
     if (step === undefined || identity === undefined || result.isError || exec.signal.aborted
-      || facts?.status !== 'batch_success' || facts.regions.length === 0
-      || facts.regions.some(region => region.status !== 'committed' || region.compactionId === undefined)
+      || facts === undefined || facts.regions.some(region => region.status === 'unconfirmed')
+      || !facts.regions.some(region => (region.status === 'committed' || region.status === 'committed_with_error') && region.compactionId !== undefined)
       || identity.turn !== step.turn || identity.step !== step.step) return
-    step.final = { exec, compactionIds: facts.regions.flatMap(region => region.compactionId === undefined ? [] : [region.compactionId]) }
+    step.final = { exec, facts: structuredClone({
+      status: facts.status,
+      regions: facts.regions.map(({ inputIndex, status, range, expanded, error }) => ({ inputIndex, status, range, expanded, ...error === undefined ? {} : { error } })),
+      ...facts.stopReason === undefined ? {} : { stopReason: facts.stopReason },
+    }) }
   })
   ctx.on('session/event', (session, event) => {
     if (event.type === 'step/start') {
@@ -124,7 +126,7 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState): H
       if (index < 0 || session.surface.nodes[index + 1] !== event.seq) return
       const candidate: HideCandidate = {
         identity, execution: final.exec, assistantSeq: assistant.seq, toolCallSeq: call.seq,
-        resultSeq: event.seq, compactionIds: final.compactionIds,
+        resultSeq: event.seq, facts: final.facts,
       }
       forget(agent)
       state.hideCandidates.set(agent, candidate)
@@ -161,6 +163,7 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState): H
       const resultMessage = session.deriveEventMessage(result)
       if (assistantMessage !== assistant.data.message || resultMessage !== result.data.message) return
       const message = confirmation(ctx, config, candidate)
+      if (message === undefined) return
       const shadowedSeqs = [candidate.assistantSeq, candidate.resultSeq]
       const shadowedTokenCount = ctx.tokenMeter.estimateMessage(assistantMessage) + ctx.tokenMeter.estimateMessage(resultMessage)
       // No await: a prune claim is consumed only by its immediately adjacent replacement.

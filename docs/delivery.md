@@ -19,7 +19,7 @@ pnpm --config.verify-deps-before-run=false pack --pack-destination dist/release
 
 ```sh
 node tests/delivery/run.mjs \
-  --acp "$PWD/dist/release/dsh-active-context-0.1.0.tgz" \
+  --acp "$PWD/dist/release/dsh-active-context-0.3.0.tgz" \
   --query "$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).devDependencies["@deepseek-ai/dsh-session-query"]')"
 ```
 

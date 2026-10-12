@@ -9,7 +9,7 @@ import { createLoopFixture, runTurn, seedHistory } from './loop-fixtures/agent-l
 import { selection } from './loop-fixtures/compression-input.ts'
 
 it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as const)(
-  'keeps real native commits and the original tool pair after %s', async mode => {
+  'keeps real commits, cleaning only a confirmed partial success after %s', async mode => {
     let input: CompressInput | undefined
     const { ctx, agent, adapter } = await createLoopFixture([
       [{ type: 'text', text: 'Historical A completed.' }],
@@ -20,7 +20,7 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
         return [{ type: 'tool-call', id: ToolCallId('compress-failure'), name: 'context_compress', arguments: JSON.stringify(input) }]
       },
       request => {
-        expect(JSON.stringify(request.messages)).toContain('compress-failure')
+        expect(JSON.stringify(request.messages).includes('compress-failure')).toBe(mode !== 'partial-no-shrink')
         return [{ type: 'text', text: 'Committed facts acknowledged; select current text again before retrying.' }]
       },
     ], async context => {
@@ -51,16 +51,31 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
       const author = events.find(event => event.type === 'assistant/message' && event.data.message.content.some(block => block.type === 'tool-call' && block.id === 'compress-failure'))
       const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'compress-failure')
       if (author === undefined || result?.type !== 'tool/result') throw new Error('Original author/result diagnostic pair missing')
-      expect(agent.session.surface.nodes).toContain(author.seq)
-      expect(agent.session.surface.nodes).toContain(result.seq)
-      expect(events.some(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')).toBe(false)
+      expect(agent.session.surface.nodes.includes(author.seq)).toBe(mode !== 'partial-no-shrink')
+      expect(agent.session.surface.nodes.includes(result.seq)).toBe(mode !== 'partial-no-shrink')
+      const maintenance = events.find(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')
+      expect(maintenance !== undefined).toBe(mode === 'partial-no-shrink')
+      if (mode === 'partial-no-shrink') {
+        if (maintenance?.type !== 'user/message') throw new Error('missing partial cleanup')
+        const text = maintenance.data.content.find(block => block.type === 'text')
+        if (text?.type !== 'text') throw new Error('missing cleanup text')
+        const record = JSON.parse(text.text.slice(text.text.indexOf('{')))
+        expect(record.regions.map((region: { range: unknown }) => region.range)).toEqual(input!.regions.map(region => region.range))
+        expect(record.regions.map((region: { status: string }) => region.status)).toEqual(['failed', 'committed'])
+        expect(record.regions[0].error).toContain('summary is not smaller')
+        expect(record.log).toMatchObject({ assistant_seq: author.seq, result_seq: result.seq })
+        expect(text.text).not.toContain(input!.regions[0]!.summary)
+        expect(text.text).not.toContain(input!.regions[1]!.summary)
+        expect(agent.session.eventAt(author.seq)).toEqual(author)
+        expect(agent.session.eventAt(result.seq)).toEqual(result)
+      }
       const content = result.data.message.content.find(block => block.type === 'text')
       if (content?.type !== 'text') throw new Error('Final committed-facts content missing')
       const facts = JSON.parse(content.text)
       expect(facts.regions).toHaveLength(2)
       expect(facts.regions[1].compaction_id).toBeDefined()
       expect(facts.regions[1].replacement_seq).toBeDefined()
-      expect(facts.cleanup).toBe(mode === 'partial-no-shrink' ? 'not_eligible' : 'retained')
+      expect(facts.cleanup).toBe(mode === 'partial-no-shrink' ? 'pending_final_settlement' : 'retained')
       if (mode === 'post-policy-error') {
         expect(result.data.message.isError).toBe(true)
         expect(facts.status).toBe('batch_success')

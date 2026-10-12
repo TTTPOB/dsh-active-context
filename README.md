@@ -7,7 +7,7 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 1. 为一个或多个非相邻区间选择两个独特原文端点，按需通过历史工具回读。每个端点包含 `text` 和可选的实际消息 `role`。
 2. 为每个区间写非空 `summary`，保留结论、精确名称与路径、修改和验证证据、失败原因、未解决项、约束、不确定性及回读入口。
 3. 在一条独立 assistant 响应中直接调用一次 `context_compress`，提交 `regions`。使用 native 或 both；该响应只包含这次工具调用及可选 reasoning，不带其他工具或任务正文，也不经 run_code/PTC 调用。
-4. 查看逐项结果。`input_index` 从零开始对应输入，`execution_order` 给出实际尝试顺序。执行从 Surface 尾部向前进行，首个失败即停止，已提交项保留。部分成功或失败后，用当时当前正文重新选择失败或未执行项。
+4. 查看逐项结果。`input_index` 从零开始对应输入，`execution_order` 给出实际尝试顺序。执行从 Surface 尾部向前进行，选区错误或原生摘要不缩水只影响该项，其他独立合法项继续。取消、未知宿主故障或不确定提交停止余项，已提交项不回滚。只用当前正文重新选择失败或未执行项；成功项的原端点不保证还能匹配。
 
 接口示意：
 
@@ -27,9 +27,11 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 
 每个 `range` 恰有两个端点，按当前 Surface 位置指定起点和终点，包含两端的完整节点及中间全部节点；两端可以定位同一节点。每个端点独立匹配整个当前调用会话的派生消息 text block，使用大小写敏感的 literal substring，不 trim、不规范化、不跨 block 拼接。端点必须非空，空白本身也是字面文本。同一节点内多次或多 block 命中只算一个候选；不同节点重复则拒绝，可换更独特原文或加 `role`。`role` 只限定该端点，不过滤区间内部节点。
 
-匹配不搜索 reasoning、工具参数、附件占位、provider wrapper 或原始 Log，也不提供 regex、occurrence、模糊匹配或 ID 选区。正文已被替换时，只能命中当前摘要节点，不代表旧原节点仍存活。任一端点缺失或歧义、倒序、区间重叠或相邻、保护或工具配对不满足，都会在写入前拒绝全批。
+匹配不搜索 reasoning、工具参数、附件占位、provider wrapper 或原始 Log，也不提供 regex、occurrence、模糊匹配或 ID 选区。正文已被替换时，只能命中当前摘要节点，不代表旧原节点仍存活。端点无匹配、歧义或倒序只使该 region 失败。批数、参数结构和总摘要预算错误仍拒绝整批。宿主解析端点后，自动向外扩展到完整 tool-call/result 配对；同一 assistant 的全部调用及扩展过程中纳入的工具对一起求闭包；即使只选中调用与结果之间的纯文本节点，也会补齐穿越该选区的完整工具跨度。当前正文缺失对应调用或结果时该 region 失败，已知范围仍参加冲突检查。宿主在预检确认原生切点平衡，不能补齐时仅拒绝该 region。
 
-当前 system/developer、当前 Step、最近任务输入（包括承载该输入的存活 checkpoint）及存活的 `form:instructions` 受保护，包括选区中间的节点。保护拒绝返回阻挡节点总数、最多四个节点的角色、保护原因与短原文，供缩边界或拆区；无正文时明确标注。选区不会自动扩界。全批成功且最终工具结果正常落档后，插件在下一 Step 的原生压力检查前，用短确认替换相邻调用与结果节点；错误、部分成功、取消及清理前中断保留原工具对。
+当前 system/developer、当前 Step、最近任务输入（包括承载该输入的存活 checkpoint）及存活的 `form:instructions` 受保护，包括选区中间的节点。自动补齐工具对后再检查整个区间的保护和跨 region 冲突，不能通过扩展绕过保护。保护拒绝返回阻挡节点总数、最多四个节点的角色、原因与短原文；无正文时明确标注。扩展后重叠或相邻的所有参与 region 都失败，不自动合并，其他合法 region 仍可执行。结果保留原 `range`、`input_index`、逐项状态、`expanded` 和原因；`node_count` 为实际完整选区节点数。
+
+最终工具结果正常落档、Step 结束且至少有一个已确认提交时，插件在下一 Step 原生压力检查前，用短状态记录替换相邻调用与结果节点，支持部分成功。记录完整保留所有 region 的原 `input_index`、状态、`range`（含可选 role）、扩展标记、失败或未执行原因，以及原 assistant/tool-call/result 的 Log seq；不重放 summary。完整记录超出任一确认预算时保留原工具对，不截断端点或只留下 seq。最终错误、取消、不确定提交、无成功、清理前重启或资格不满足时也保留原工具对。原调用与结果始终可从 Log 回读。
 
 ## 配置与运行条件
 
@@ -42,19 +44,19 @@ ACP 替换唯一 `compaction` provider；使用时须禁用原 Basic provider。
 | `maxRegions` | 16 | 每批区间上限，至少允许 2 |
 | `summaryMaxTokens` / `summaryMaxBytes` | 8000 / 32000 | 全批摘要总预算 |
 | `resultMaxBytes` | 16000 | 工具结果预算 |
-| `confirmationMaxTokens` / `confirmationMaxBytes` / `confirmationMaxIds` | 256 / 2048 / 4 | 成功工具对清理后的短确认预算 |
+| `confirmationMaxTokens` / `confirmationMaxBytes` | 1200 / 8000 | 完整状态记录含消息包装的上限；超出时保留原工具对 |
 | `reminderMaxTokens` / `reminderMaxBytes` | 1200 / 6000 | 整条压力提醒及消息包装预算 |
 | `taskSourceKinds` | `user`, `agent-message`, `goal`, `schedule` | 最新任务来源；notice 不作为任务，agent-message 只认 relay |
 | `pressureRoutes` | `[]` | 仅显式路由启用提前提醒 |
 
-提醒使用英文，包含压力、计量依据和行动建议，不附候选区间；完整提醒超预算直接报错并列出实际计量与配置上限，不降级为短提醒。每个启用路由指定 `provider`、`model`、`nudgeAtTokens`（S）和 `resetBelowTokens`（R），满足 `0 <= R < S < H`；H 是原生自动压缩线。每段持续高压只提醒一次，实时计量低于 R 才复位；恢复时保留已落档提醒状态。提醒不额外发起模型请求，不改变原生兜底。
+提醒使用英文，包含约数 T、原生自动压缩阈值 H 和行动建议，不附候选区间；完整提醒超预算直接报错并列出实际计量与配置上限，不降级为短提醒。每个启用路由指定 `provider`、`model`、`nudgeAtTokens`（S）和 `resetBelowTokens`（R），满足 `0 <= R < S < H`；H 是原生自动压缩线。每段持续高压只提醒一次，实时计量低于 R 才复位；恢复时保留已落档提醒状态。提醒不额外发起模型请求，不改变原生兜底。
 
 ## 开发文档
 
 - [行为核对](<docs/review-guide.md>)：字面定位、生命周期及源码验证方法。
 - [成品构建与发布](<docs/delivery.md>)：打包、隔离安装、正式解析与 Loader 验证。
 - [原文字面锚点设计](<docs/adr/0003-text-anchored-compaction.md>)：定位语义与取舍。
-- [提交生命周期](<docs/adr/0001-active-compaction-submission.md>)与[压力提醒](<docs/adr/0002-pressure-notices.md>)：未被新 ADR 替代的保护、事务、计量和去重规则。
+- [提交生命周期](<docs/adr/0001-active-compaction-submission.md>)与[压力提醒](<docs/adr/0002-pressure-notices.md>)：保护、事务、清理、计量和去重规则。
 - [Query 同步只读采样](<../deepseek-harness/docs/subsystems/session-query.zh.md#synchronous-session-sampling>)。
 
 跨仓库链接按并列工作区布局解析。

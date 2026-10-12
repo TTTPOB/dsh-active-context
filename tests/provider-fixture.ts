@@ -65,13 +65,15 @@ export async function providerFixture() {
     ] }
   }
   let submittedBatch = input()
+  let submittedIdentity = identity
   let rendered = ''
   ctx.tools.register(defineTool({ name: 'fixture-submit', description: 'Submit a test-only active batch', parameters: {}, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, async execute(_args, exec) {
-    rendered = await submitRegions(ctx, engine, exec, identity, submittedBatch, config, state)
+    rendered = await submitRegions(ctx, engine, exec, submittedIdentity, submittedBatch, config, state)
     return rendered
   } }))
-  async function submit(batch = input()) {
+  async function submit(batch = input(), executionIdentity = identity) {
     submittedBatch = batch
+    submittedIdentity = executionIdentity
     rendered = ''
     const result = await ctx.tools.execute({ name: 'fixture-submit', callId, arguments: {}, signal: new AbortController().signal, agent })
     return { result, rendered, facts: rendered ? JSON.parse(rendered) : undefined }

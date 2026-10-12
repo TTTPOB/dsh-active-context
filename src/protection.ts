@@ -69,6 +69,41 @@ export function protectedNodes(
   return nodes
 }
 
+/** A selection failure can be reported without hiding a host/service failure. */
+export class RegionSelectionError extends Error {}
+
+/** Complete all intersecting tool spans, retaining known bounds when a counterpart is missing. */
+export function expandToolPairs(messages: readonly (Message | null)[], start: number, end: number): { start: number; end: number; missingCounterpart: boolean } {
+  const pending = new Map<ToolCallId, number[]>()
+  const pairs: [number, number][] = []
+  const missing = new Set<number>()
+  messages.forEach((message, index) => {
+    if (message?.role === 'assistant') {
+      for (const block of message.content) {
+        if (block.type === 'tool-call') pending.set(block.id, [...pending.get(block.id) ?? [], index])
+      }
+    } else if (message?.role === 'tool') {
+      const call = pending.get(message.toolCallId)?.shift()
+      if (call === undefined) missing.add(index)
+      else pairs.push([call, index])
+    }
+  })
+  for (const calls of pending.values()) for (const index of calls) missing.add(index)
+  let previousStart: number
+  let previousEnd: number
+  do {
+    previousStart = start
+    previousEnd = end
+    // A plain-text node between a call and its result also cuts that tool span.
+    for (const [call, result] of pairs) {
+      if (call > end || result < start) continue
+      start = Math.min(start, call)
+      end = Math.max(end, result)
+    }
+  } while (start !== previousStart || end !== previousEnd)
+  return { start, end, missingCounterpart: [...missing].some(index => index >= start && index <= end) }
+}
+
 /** Each selected call occurrence must have exactly one selected matching result. */
 export function assertCompleteToolPairs(messages: readonly (Message | null)[]): void {
   const pending = new Map<ToolCallId, number>()

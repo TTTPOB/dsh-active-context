@@ -79,7 +79,7 @@ it('the first prompt submission selects three complete old messages using interi
       expect(offset).toBeGreaterThan(0)
       expect(offset + endpoint.text.length).toBeLessThan(message.text.length)
     }
-    const resolved = await preflightRegions(f.ctx, f.agent, f.identity, submitted, f.config)
+    const { regions: resolved } = await preflightRegions(f.ctx, f.agent, f.identity, submitted, f.config)
     expect(resolved[0]!.seqs).toEqual(f.seqs)
     expect(resolved[0]!.messages.map(message => message?.content)).toEqual(messages.map(message => [{ type: 'text', text: message.text }]))
   } finally { await f.ctx.fiber.dispose() }
@@ -93,10 +93,21 @@ it('the repeated assistant phrase is ambiguous, while the corrected prompt submi
     const ambiguous = input(f.schema, examples[3])
     const corrected = input(f.schema, examples[4])
     const before = f.agent.session.snapshotEvents()
-    await expect(preflightRegions(f.ctx, f.agent, f.identity, ambiguous, f.config)).rejects.toThrow(/endpoint 0 is ambiguous/)
+    await expect(preflightRegions(f.ctx, f.agent, f.identity, ambiguous, f.config)).resolves.toMatchObject({ facts: [expect.objectContaining({ status: 'failed', error: expect.stringMatching(/endpoint 0 is ambiguous/) })] })
     expect(f.agent.session.snapshotEvents()).toEqual(before)
-    const resolved = await preflightRegions(f.ctx, f.agent, f.identity, corrected, f.config)
+    const { regions: resolved } = await preflightRegions(f.ctx, f.agent, f.identity, corrected, f.config)
     expect(resolved[0]!.seqs).toEqual([f.seqs[1]])
     expect(resolved[0]!.messages[0]!.content).toEqual([{ type: 'text', text: messages[1]!.text }])
+  } finally { await f.ctx.fiber.dispose() }
+})
+
+it('states endpoint direction and full-node selection verbatim in both instructions and range schema', async () => {
+  const orientation = 'range[0] identifies the start node and range[1] identifies the end node. The start must be at or before the end in current context order. Both endpoint nodes and all nodes between them are selected in full. If both endpoints identify the same node, only that node is selected.'
+  const f = await exampleFixture(history(exampleJson()[0]))
+  try {
+    expect(ACP_INSTRUCTIONS).toContain(orientation)
+    expect(JSON.stringify(f.schema)).toContain(orientation)
+    expect(ACP_INSTRUCTIONS).not.toContain('Keep complete tool-call/result pairs')
+    expect(ACP_INSTRUCTIONS).toContain('automatically expands ranges outward')
   } finally { await f.ctx.fiber.dispose() }
 })

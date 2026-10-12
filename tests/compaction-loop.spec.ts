@@ -115,7 +115,7 @@ it('commits two nonadjacent native regions, hides only their finalized successfu
       const indices = region.range.map(endpoint => originalSurface.findIndex(seq => {
         const event = agent.session.eventAt(seq)!
         const message = agent.session.deriveEventMessage(event)
-        return message !== null && message.role === endpoint.role && message.content.some(block => block.type === 'text' && block.text === endpoint.text)
+        return message !== null && message.role === endpoint.role && message.content.some(block => block.type === 'text' && block.text.includes(endpoint.text))
       }))
       expect(indices[0]).toBeGreaterThanOrEqual(0)
       expect(indices[1]).toBeGreaterThanOrEqual(indices[0]!)

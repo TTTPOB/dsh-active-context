@@ -28,20 +28,15 @@ function previouslyReminded(session: Session): boolean {
   return false
 }
 
-function pressureBasis(measurement: TokenMeasurement): string {
-  return measurement.baseline.kind === 'usage' ? 'API usage + estimated delta' : 'estimated'
-}
-
 function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, nativeAt: number): UserMessage {
   const message = createUserMessage({
     content: [{ type: 'text', text:
       'Host context maintenance notice: context pressure is high.\n'
       + `T≈${measurement.totalTokens} tokens; native automatic compaction threshold H=${nativeAt}.\n`
-      + `Measurement basis: ${pressureBasis(measurement)}; baseline=${measurement.baseline.tokens}; delta=${measurement.surfaceDeltaTokens}.\n\n`
       + 'Use context_compress to summarize completed work that no longer needs verbatim history. '
       + 'Prefer a complete multi-message work phase over isolated reports. '
       + `Select 1–${config.maxRegions} non-adjacent regions using distinctive literal text endpoints; read back history if needed. `
-      + 'Exclude protected nodes throughout each range and keep tool-call/result pairs complete. '
+      + 'Exclude protected nodes; tool pairs are completed automatically before validation. '
       + 'Submit one standalone native/both call, with no task prose or other tools.',
     }],
     source: { kind: 'acp-pressure', form: 'notice', summary: boundContextSummary('High context pressure; summarize completed history.') },

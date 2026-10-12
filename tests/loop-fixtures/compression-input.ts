@@ -17,7 +17,7 @@ export function selection(session: Session): CompressInput {
       const endpoint = (message: typeof messages[number] | undefined): TextEndpoint => {
         const text = message?.content.find(block => block.type === 'text')
         if (message === undefined || text?.type !== 'text') throw new Error('Historical turn has no text endpoint: ' + turn)
-        return { text: text.text, role: message.role }
+        return { text: text.text.slice(0, 80), role: message.role }
       }
       return { range: [endpoint(messages[0]), endpoint(messages.at(-1))], summary: summaries[index]! }
     }),
