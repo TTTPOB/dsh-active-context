@@ -7,7 +7,7 @@ import type { SessionEvent, SessionId, SessionSeq } from '@deepseek-ai/dsh-sessi
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 
-/** Literal substring of one current derived text block, optionally limited by actual role. */
+/** Literal substring of one eligible current derived text block, optionally limited by actual role; ACP displays are excluded. */
 export interface TextEndpoint {
   readonly text: string
   readonly role?: Message['role']
@@ -71,6 +71,7 @@ export interface ResolvedRegion {
   readonly expanded: boolean
   readonly start: SessionSeq
   readonly end: SessionSeq
+  readonly endpointSeqs: readonly [SessionSeq, SessionSeq]
   readonly startIndex: number
   readonly endIndex: number
   readonly seqs: readonly SessionSeq[]

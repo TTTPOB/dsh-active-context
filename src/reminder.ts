@@ -5,7 +5,9 @@ import type { ContextFormed, MessageId, UserMessage } from '@deepseek-ai/dsh-llm
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
-import type { AcpConfig, ReminderBasicConfig, ReminderHooks } from './types.ts'
+import { protectedNodes, sampleSurface, type SurfaceCapture } from './protection.ts'
+import { protectionGroups } from './boundaries.ts'
+import type { AcpConfig, PreStepFrame, ReminderBasicConfig, ReminderHooks } from './types.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -28,22 +30,47 @@ function previouslyReminded(session: Session): boolean {
   return false
 }
 
-function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, nativeAt: number): UserMessage {
-  const message = createUserMessage({
-    content: [{ type: 'text', text:
-      'Host context maintenance notice: context pressure is high.\n'
-      + `T≈${measurement.totalTokens} tokens; native automatic compaction threshold H=${nativeAt}.\n`
-      + 'Use context_compress to summarize completed work that no longer needs verbatim history. '
-      + 'Prefer a complete multi-message work phase over isolated reports. '
-      + `Select 1–${config.maxRegions} non-adjacent regions using distinctive literal text endpoints; read back history if needed. `
-      + 'Exclude protected nodes; tool pairs are completed automatically before validation. '
-      + 'Submit one standalone native/both call, with no task prose or other tools.',
-    }],
+function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, nativeAt: number, surface: SurfaceCapture, frame: PreStepFrame): UserMessage {
+  const protection = protectedNodes(surface, frame, config, 'pre-step')
+  const groups = protectionGroups(surface, protection)
+  const core = 'Host context maintenance notice: context pressure is high.\n'
+    + `T≈${measurement.totalTokens} tokens; native automatic compaction threshold H=${nativeAt}.\n`
+    + 'Use context_compress to summarize completed work that no longer needs verbatim history. '
+    + 'Prefer a complete multi-message work phase over isolated reports. '
+    + `Select 1–${config.maxRegions} non-adjacent regions using distinctive literal text endpoints; read back history if needed. `
+    + 'Every range must stay in one section between protected boundaries; any finer range within that section is allowed. '
+    + 'The map does not prescribe compression ranges. B labels and protected clues identify boundaries, not selectable endpoints; choose actual text + optional role from messages inside a section. '
+    + 'Tool-span completion can reach protection and reject a range; this current map does not replace validation. '
+    + 'New input/current entering Step is not in this pre-step Surface map and cannot be selected. Current executing Step is always a hard rejection. '
+    + 'Submit one standalone native/both call, with no task prose or other tools.'
+  let message = createUserMessage({
+    content: [{ type: 'text', text: core }],
     source: { kind: 'acp-pressure', form: 'notice', summary: boundContextSummary('High context pressure; summarize completed history.') },
   })
-  const requiredTokens = ctx.tokenMeter.estimateMessage(message)
-  const requiredBytes = Buffer.byteLength(JSON.stringify(message), 'utf8')
-  if (requiredTokens > config.reminderMaxTokens || requiredBytes > config.reminderMaxBytes) {
+  const render = (selected: typeof groups) => {
+    const ordered = [...selected].sort((a, b) => a.start - b.start)
+    const omitted = groups.length - ordered.length
+    const nodes = protection.size - ordered.reduce((sum, group) => sum + group.count, 0)
+    return core + '\nProtected boundaries in Surface order (consecutive same-class nodes grouped):\n'
+      + (ordered.length === 0 ? '[none listed]\n' : ordered.map(group => group.text).join('\n') + '\n')
+      + (omitted === 0 ? 'All current Surface protection groups listed.'
+        : `Omitted ${omitted} protection groups (${nodes} nodes); there are unlisted boundaries. Do not assume an unlisted section is clear.`)
+  }
+  const fits = (text: string) => {
+    message = { ...message, content: [{ type: 'text', text }] }
+    return ctx.tokenMeter.estimateMessage(message) <= config.reminderMaxTokens
+      && Buffer.byteLength(JSON.stringify(message), 'utf8') <= config.reminderMaxBytes
+  }
+  const selected: typeof groups = []
+  // Make easily missed task/carrier nodes visible before spending room on instructions.
+  if (fits(render(selected))) {
+    for (const group of [...groups].sort((a, b) => Number(b.hasLatestTask) - Number(a.hasLatestTask))) {
+      if (fits(render([...selected, group]))) selected.push(group)
+    }
+    message = { ...message, content: [{ type: 'text', text: render(selected) }] }
+  } else {
+    const requiredTokens = ctx.tokenMeter.estimateMessage(message)
+    const requiredBytes = Buffer.byteLength(JSON.stringify(message), 'utf8')
     throw new Error('ACP: complete pressure notice exceeds reminder budgets: '
       + `required estimated tokens=${requiredTokens}, actual UTF-8 bytes=${requiredBytes}; `
       + `configured reminderMaxTokens=${config.reminderMaxTokens}, reminderMaxBytes=${config.reminderMaxBytes}. `
@@ -57,7 +84,7 @@ function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, 
  * Empty pressureRoutes explicitly disables early notices, not native compaction.
  * Unlisted routes are not enabled. Missing capacity and invalid dynamic H are
  * diagnosed once per route; native handling and the admitted decision survive.
- * A complete notice exceeding either budget throws at generation without consuming the episode.
+ * The map explicitly counts omitted groups; an over-budget core throws without consuming the episode.
  * @param ctx - Plugin effect context with the production meter and LLM runtime.
  * @param config - ACP budgets and exact-route R/S thresholds.
  * @param basic - Validated configuration owned by the native Basic provider.
@@ -124,7 +151,8 @@ export function installReminder(ctx: Context, config: AcpConfig, basic: Reminder
         episodes.set(session, episode)
       }
       if (episode.reminded || measurement.totalTokens < route.nudgeAtTokens) return decision
-      const message = notice(ctx, config, measurement, nativeAt)
+      const message = await ctx.sessionQuery.captureSession(frame.agent.id, (reader, observation) =>
+        notice(ctx, config, measurement, nativeAt, sampleSurface(frame.agent, reader, observation), frame), { projectionMode: 'none' })
       episode.candidate = message.id
       return { ...decision, messages: [...decision.messages, message] }
     },

@@ -7,9 +7,15 @@ import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
+import SessionQuery from '@deepseek-ai/dsh-session-query'
 import { AcpConfigSchema } from '../../src/config.ts'
 import { installReminder } from '../../src/reminder.ts'
 import type { AcpConfig, PreStepFrame, ReminderHooks } from '../../src/types.ts'
+
+class LiveQuery extends SessionQuery {
+  override searchSessions(): never { throw new Error('Fixture captures only live sessions') }
+  override searchEvents(): never { throw new Error('Fixture captures only live sessions') }
+}
 
 export class ReminderAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
@@ -57,6 +63,7 @@ export async function reminderFixture(config = configFor(), basic: BasicCompacti
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(TokenMeter)
+  await ctx.plugin(LiveQuery, {})
   const adapter = new ReminderAdapter()
   ctx.llm.registerAdapter(['reminder'], adapter)
   await ctx.plugin(BasicCompactionEngine, { headroomTokens: 0, maxTokens: 64, retainTokens: 50, thresholdRatio: 0.8, ...basic })
@@ -79,7 +86,7 @@ export async function reminderFixture(config = configFor(), basic: BasicCompacti
       state.candidate = decision
       return state.after === undefined ? decision : state.after(frame, decision)
     }, { prepend: true })
-  }, { inject: ['tokenMeter', 'llm', 'sessionProjections'] }))
+  }, { inject: ['tokenMeter', 'llm', 'sessionProjections', 'sessionQuery'] }))
   let fiber = await install()
   const harness = await mountAgentLoopTestHarness(ctx)
   const agent = await harness.create(SessionId('reminder-lifecycle'), { provider: 'reminder', model: 'working' }, { cwd: '/reminder-fixture' })

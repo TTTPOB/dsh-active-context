@@ -7,7 +7,7 @@ import { configFor, largeTask, notices, reminderFixture, replaceHistory } from '
 const body = (message: { content: readonly { type: string; text?: string }[] }) => message.content.map(block => block.text ?? '').join('\n')
 
 describe('post-native thresholds and complete pressure notice budgets', () => {
-  it('does not suggest the latest task carried by a real native overflow checkpoint', async () => {
+  it('maps the protected latest task carried by a real native overflow checkpoint', async () => {
     const route = { provider: 'reminder', model: 'working', nudgeAtTokens: 5000, resetBelowTokens: 100 }
     const fixture = await reminderFixture(configFor({ pressureRoutes: [route] }))
     const { ctx, agent, adapter } = fixture
@@ -34,7 +34,9 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
         && event.data.source.kind === 'compact-checkpoint' && event.sourceEventSeqs?.includes(originalTask.seq))!
       expect(agent.session.surface.nodes).toContain(carrier.seq)
       expect(notices(agent.session)).toHaveLength(1)
-      expect(body(notices(agent.session)[0]!.data)).not.toContain('TASK-CARRIER')
+      expect(body(notices(agent.session)[0]!.data)).toContain('latest_task_checkpoint')
+      expect(body(notices(agent.session)[0]!.data)).toContain('TASK-CARRIER retained latest task')
+      expect(body(notices(agent.session)[0]!.data)).toContain('All current Surface protection groups listed.')
     } finally { await ctx.fiber.dispose() }
   })
 
@@ -151,8 +153,15 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
         + 'Use context_compress to summarize completed work that no longer needs verbatim history. '
         + 'Prefer a complete multi-message work phase over isolated reports. '
         + 'Select 1–3 non-adjacent regions using distinctive literal text endpoints; read back history if needed. '
-        + 'Exclude protected nodes; tool pairs are completed automatically before validation. '
-        + 'Submit one standalone native/both call, with no task prose or other tools.',
+        + 'Every range must stay in one section between protected boundaries; any finer range within that section is allowed. '
+        + 'The map does not prescribe compression ranges. B labels and protected clues identify boundaries, not selectable endpoints; choose actual text + optional role from messages inside a section. '
+        + 'Tool-span completion can reach protection and reject a range; this current map does not replace validation. '
+        + 'New input/current entering Step is not in this pre-step Surface map and cannot be selected. Current executing Step is always a hard rejection. '
+        + 'Submit one standalone native/both call, with no task prose or other tools.\n'
+        + 'Protected boundaries in Surface order (consecutive same-class nodes grouped):\n'
+        + 'B1 instructions (1 node): system "You are an AI agent powered by DeepSeek Harness."\n'
+        + 'B2 latest_task_input (1 node): user "Historical completed work; preserve alpha. detai"\n'
+        + 'All current Surface protection groups listed.',
       )
       expect(message.source).toMatchObject({ summary: 'High context pressure; summarize completed history.' })
       expect(fixture.ctx.tokenMeter.estimateMessage(message)).toBeLessThanOrEqual(config.reminderMaxTokens)
@@ -168,16 +177,14 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
     // Installation must not simulate unknown runtime values to enforce a short minimum.
     const fixture = await reminderFixture(config)
     try {
-      let frame: Parameters<NonNullable<typeof fixture.state.before>>[0] | undefined
-      fixture.state.before = value => { frame = value }
       await fixture.run(largeTask)
-      if (frame === undefined || fixture.state.hooks === undefined) throw new Error('Missing reminder hook frame')
-      const decision = { kind: 'enter' as const, messages: [createUserMessage({ content: [{ type: 'text', text: 'Continue.' }], source: { kind: 'user' } })] }
-      await expect(fixture.state.hooks.noticeAfterNative(frame, decision)).rejects.toThrow(
+      await fixture.run('Trigger a notice with too little room.')
+      const end = fixture.agent.session.snapshotEvents().at(-1)
+      expect(end).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'error', error: { message: expect.stringMatching(
         new RegExp('required estimated tokens=\\d+, actual UTF-8 bytes=\\d+; '
           + `configured reminderMaxTokens=${budget.reminderMaxTokens}, reminderMaxBytes=${budget.reminderMaxBytes}\\. `
           + 'Increase reminderMaxTokens/reminderMaxBytes'),
-      )
+      ) } } } })
       expect(notices(fixture.agent.session)).toHaveLength(0)
       config.reminderMaxTokens = 1200
       config.reminderMaxBytes = 6000
@@ -188,7 +195,7 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
     } finally { await fixture.ctx.fiber.dispose() }
   })
 
-  it('offers complete action advice in a long Turn without copying history or instructions', async () => {
+  it('offers action advice and only bounded protected clues in a long Turn', async () => {
     const fixture = await reminderFixture(configFor({ pressureRoutes: [
       { provider: 'reminder', model: 'working', nudgeAtTokens: 1800, resetBelowTokens: 200 },
     ] }))
@@ -212,8 +219,10 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
       expect(body(message)).toContain('distinctive literal text endpoints')
       expect(body(message)).toContain('context_compress')
       expect(body(message)).not.toContain('Completed old analysis')
-      expect(body(message)).not.toContain('LIVE INSTRUCTIONS')
-      expect(body(message)).not.toContain('Historical completed work')
+      expect(body(message)).toContain('LIVE INSTRUCTIONS')
+      expect(body(message)).toContain('Historical completed work')
+      expect(body(message)).not.toContain(largeTask)
+      expect(body(message)).toContain('B1 instructions (2 nodes)')
     } finally { await ctx.fiber.dispose() }
   })
 

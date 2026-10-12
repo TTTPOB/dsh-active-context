@@ -4,7 +4,7 @@
 
 ## 当前正文选区
 
-`context_compress` 在本次调用内通过 Query `captureSession` 同步读取当前调用会话的 Surface、派生消息、事件和计量。borrowed reader 只在 callback 内使用，执行目标以分离后的完整节点资料固定。每个端点分别扫描全部当前派生 text block；匹配按节点合并，不能截断扫描后冒充唯一。
+`context_compress` 在本次调用内通过 Query `captureSession` 同步读取当前调用会话的 Surface、派生消息、事件和计量。borrowed reader 只在 callback 内使用，执行目标以分离后的完整节点资料固定。每个端点分别扫描全部可作端点的当前派生 text block（精确排除 ACP 展示节点，规则见 README）；匹配按节点合并，不能截断扫描后冒充唯一。
 
 两个端点包含完整节点，可以位于同一节点；顺序以 Surface 位置解释，不以内部 seq 排序。工具结果正文可以匹配；宿主自动向外补齐调用／结果，包含同一 assistant 的全部调用、穿越纯文本选区的完整工具跨度及扩展夹入的工具对，直到完整闭包。已知缺失配对范围仍参与双方冲突检查；原生切点平衡在预检确认。扩展后再检查保护和跨 region 冲突。缺失或歧义诊断只含有界原文线索与 role，供模型重新选词。普通历史搜索仍是索引 FTS，不承担字面选区，也不以日志扫描补偿索引失败。
 
@@ -20,7 +20,7 @@
 
 ## 压力提醒与原生兜底
 
-每次正常请求依次执行：成功工具对清理 → 原生压力处理 → ACP 重测 → 本次提醒。默认 `pressureRoutes: []` 不启用提前提醒。显式启用路由须满足 `R < S < H`；完整英文提醒含消息包装、约数 T、原生阈值 H 及行动建议，预算不足直接报错，列出实际估计 tokens、UTF-8 bytes 与配置上限，不降级为短提醒。
+每次正常请求依次执行：成功工具对清理 → 原生压力处理 → ACP 重测 → 本次提醒。默认 `pressureRoutes: []` 不启用提前提醒。显式启用路由须满足 `R < S < H`；英文提醒含约数 T、原生阈值 H、行动建议和有界当前保护地图。组标签、正文线索、pre-step 位置及地图预算行为见 [README](<../README.md#配置与运行条件>)；核心文字及遗漏说明放不下时直接报错。
 
 每段持续高压只提醒一次，实际提醒落档才消耗资格，实时计量 `T < R` 后复位。reload/resume/HMR 后当前低于 R 直接复位，否则从当前 Session 原始 Log 一次扫描恢复已提醒状态。正常步骤使用内存状态，不写 reset 事件或重建历史压力。降压再升高、第二条提醒落档前恰好重启时，可能沿用旧的已提醒状态，直到再次测得 `T < R`。
 
@@ -30,11 +30,11 @@ ACP 与 Harness 源码位于同一父目录，Harness 提供 Vitest、TypeScript
 
 ```sh
 node tests/typecheck.mjs
-node tests/run.mjs text-ranges partial-regions regions protection provider compaction-loop compaction-failures recorded-replay guard hide reminder
+node tests/run.mjs boundaries text-ranges partial-regions regions protection provider compaction-loop compaction-failures recorded-replay guard hide reminder
 ```
 
 [严格类型检查](<../tests/typecheck.mjs>)检查 ACP 源码及测试，不过滤诊断；[测试入口](<../tests/run.mjs>)使用源码路径别名和既有 Loader、Loop、delivery helper。测试临时目录自动清理，源码验证不替代[打包后隔离安装](<delivery.md>)。
 
-关键行为包括：字面唯一性、缺失与歧义、同节点与多 block、当前摘要替换、逐项失败继续与全局预算拒绝、工具对自动闭包及扩展后保护／冲突、独立调用 guard、双非相邻原生提交、局部执行失败继续与不可恢复故障停止、错误结算事实、部分／完整成功工具对清理、长参数超预算保留原对与 replay，以及提醒计量、去重和恢复。模型可见输出通过[录制回放](<../tests/recorded-replay.spec.ts>)消费真实嵌入 assistant streams、比较完整规范化 Log，并检查下一请求和最终回答。
+关键行为包括：字面唯一性、缺失与歧义、同节点与多 block、当前摘要替换、逐项失败继续与全局预算拒绝、工具对自动闭包及扩展后保护／冲突、独立调用 guard、双非相邻原生提交、局部执行失败继续与不可恢复故障停止、错误结算事实、部分／完整成功工具对清理、长参数超预算保留原对与 replay，以及真实 relay 正文地图、连续保护分组、唯一原文与明确遗漏、跨边界失败／段内细选、安全 split ranges 在真实 Loop 按原样再次提交、提醒计量、去重和恢复。模型可见输出通过[录制回放](<../tests/recorded-replay.spec.ts>)消费真实嵌入 assistant streams、比较完整规范化 Log，并检查下一请求和最终回答。
 
 源码、成品解析和真实模型质量分别验证。实际预算与成本需结合工作路由、usage、缓存及延迟评估，不能由确定性 fixture 推断固定收益。

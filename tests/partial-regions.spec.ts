@@ -25,6 +25,19 @@ it.each(['missing endpoint', 'details', 'current task'])('commits independent hi
   } finally { await f.dispose() }
 })
 
+it('keeps the fixed head target when an independent tail summary repeats its original endpoint text', async () => {
+  const f = await providerFixture()
+  try {
+    const input = f.input(f.input().regions.map((region, index) => index === 1
+      ? { ...region, summary: 'Tail conclusion; completed 1 is a reference to prior work.' } : region))
+    const { facts } = await f.submit(input)
+    expect(facts.status).toBe('batch_success')
+    expect(facts.execution_order).toEqual([1, 0])
+    expect(facts.regions.map((fact: { status: string }) => fact.status)).toEqual(['committed', 'committed'])
+    expect(f.session.surface.nodes).not.toContain(f.old[0])
+  } finally { await f.dispose() }
+})
+
 it('continues to the head after a real tail native shrink failure', async () => {
   const f = await providerFixture()
   try {

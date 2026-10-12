@@ -1,7 +1,9 @@
 /** ACP protection and exact tool-pair checks over current interpreted Surface nodes. */
 import type { Message, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent, SessionSeq } from '@deepseek-ai/dsh-session'
-import type { AcpConfig, ExecutionIdentity } from './types.ts'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { SessionCaptureReader, SessionObservation } from '@deepseek-ai/dsh-session-query'
+import type { AcpConfig } from './types.ts'
 
 /** Immutable values sampled together by Query capture. */
 export interface SurfaceCapture {
@@ -9,6 +11,18 @@ export interface SurfaceCapture {
   readonly events: readonly SessionEvent[]
   readonly messages: readonly (Message | null)[]
   readonly log: readonly SessionEvent[]
+}
+
+/** Detach one actual live Surface while the Query capture reader is borrowed. */
+export function sampleSurface(agent: Agent, reader: SessionCaptureReader, observation: SessionObservation): SurfaceCapture {
+  if (reader !== agent.session) throw new Error('ACP: Query did not select the calling live Session')
+  const seqs = [...reader.surface.nodes]
+  const events = seqs.map(seq => {
+    const event = observation.events[seq]
+    if (event === undefined) throw new Error(`ACP: Surface node ${seq} is outside the observed Log`)
+    return event
+  })
+  return { seqs, events, messages: events.map(event => structuredClone(reader.deriveEventMessage(event))), log: [...observation.events] }
 }
 
 function isTaskInput(message: Message, config: AcpConfig): boolean {
@@ -47,12 +61,21 @@ export type ProtectionReason = 'system_or_developer' | 'live_instructions' | 'cu
 /** Identify protected nodes and all applicable reasons for actionable rejection diagnostics. */
 export function protectedNodes(
   surface: SurfaceCapture,
-  identity: ExecutionIdentity,
+  position: { readonly turn: number; readonly step: number },
   config: AcpConfig,
+  phase: 'execution' | 'pre-step' = 'execution',
 ): ReadonlyMap<SessionSeq, readonly ProtectionReason[]> {
   const step = surface.log.findLast(event => event.type === 'step/start')
-  if (step?.type !== 'step/start' || step.data.turn !== identity.turn || step.data.step !== identity.step) {
-    throw new Error('ACP: the calling Step is no longer current')
+  if (phase === 'execution') {
+    if (step?.type !== 'step/start' || step.data.turn !== position.turn || step.data.step !== position.step) {
+      throw new Error('ACP: the calling Step is no longer current')
+    }
+  } else {
+    const turn = surface.log.findLast(event => event.type === 'turn/start' || event.type === 'turn/end')
+    const boundary = surface.log.findLast(event => event.type === 'step/start' || event.type === 'step/end')
+    const previousStep = step?.type === 'step/start' && step.data.turn === position.turn ? step.data.step : 0
+    if (turn?.type !== 'turn/start' || turn.data.turn !== position.turn || position.step !== previousStep + 1
+      || boundary?.type === 'step/start') throw new Error('ACP: pressure map requires the actual pre-step position')
   }
   const nodes = new Map<SessionSeq, readonly ProtectionReason[]>()
   const latestTaskNodes = latestTaskCarriers(surface.log, config)
@@ -61,7 +84,7 @@ export function protectedNodes(
     const message = surface.messages[index]
     const reasons: ProtectionReason[] = []
     if (event?.type === 'system/message' || event?.type === 'developer/message') reasons.push('system_or_developer')
-    if (seq >= step.seq) reasons.push('current_step')
+    if (phase === 'execution' && step !== undefined && seq >= step.seq) reasons.push('current_step')
     if (message != null && 'form' in message.source && message.source.form === 'instructions') reasons.push('live_instructions')
     if (latestTaskNodes.has(seq)) reasons.push(message?.source.kind === 'compact-checkpoint' ? 'latest_task_checkpoint' : 'latest_task_input')
     if (reasons.length > 0) nodes.set(seq, reasons)

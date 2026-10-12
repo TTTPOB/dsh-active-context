@@ -19,7 +19,7 @@ const rows = [
   ['workspace'], ['session-query-sqlite', { path: ':memory:', openAt: 'never' }],
   ['agent-loop', { agents: [] }],
 ].map(([name, config]) => ({ id: name, name: '@deepseek-ai/dsh-' + name, ...(config ? { config } : {}) }))
-rows.push({ id: 'active-context', name: 'dsh-active-context', config: { basic: { auto: false } } })
+rows.push({ id: 'active-context', name: 'dsh-active-context', config: { basic: { auto: false }, acp: { pressureRoutes: [{ provider: 'artifact-boundary', model: 'scripted', nudgeAtTokens: 1000, resetBelowTokens: 200 }] } } })
 const configPath = join(profile, 'cordis.yml')
 const consumerPath = join(profile, 'consumer.mjs')
 await writeFile(consumerPath, `export * as acp from 'dsh-active-context'
@@ -158,6 +158,62 @@ try {
   const replay = Session.create(SessionId('acp-artifact-replay'), structuredClone(events))
   assert.deepEqual(replay.deriveMessages(), agent.session.deriveMessages())
   assert.deepEqual(replay.surface.nodes, agent.session.surface.nodes)
+  let boundaryIndex = 0
+  const boundaryRequests = []
+  class BoundaryAdapter extends LlmAdapter {
+    async resolveModel(provider, model) { return { provider, id: model, name: model, context: { contextWindow: 100_000 } } }
+    async * stream(options) {
+      boundaryRequests.push(structuredClone(options.messages))
+      let blocks
+      if (boundaryIndex === 0) blocks = [{ type: 'text', text: 'Artifact relay work completed. ' + 'retained work details '.repeat(700) }]
+      else if (boundaryIndex === 1) {
+        const notice = options.messages.find(message => message.source?.kind === 'acp-pressure')
+        assert.ok(notice)
+        const text = notice.content.find(block => block.type === 'text').text
+        assert.ok(text.includes('latest_task_input (1 node): user "Artifact parent relay task:'))
+        assert.ok(!text.includes('sent a message:'))
+        assert.ok(Buffer.byteLength(JSON.stringify(notice)) <= 6000)
+        assert.ok(ctx.tokenMeter.estimateMessage(notice) <= 1200)
+        blocks = [{ type: 'tool-call', id: ToolCallId('artifact-boundary-cross'), name: 'context_compress', arguments: JSON.stringify({ regions: [
+          { range: [{ text: 'Host context maintenance notice:', role: 'user' }, { text: 'Host context maintenance notice:', role: 'user' }], summary: 'Display must not match.' },
+          { range: [{ text: 'Artifact parent relay task:', role: 'user' }, { text: 'Artifact relay work completed.', role: 'assistant' }], summary: 'Protected task must not commit.' },
+        ] }) }]
+      } else if (boundaryIndex === 2) {
+        const result = options.messages.find(message => message.role === 'tool' && message.toolCallId === 'artifact-boundary-cross')
+        const facts = JSON.parse(result.content.find(block => block.type === 'text').text)
+        assert.equal(facts.status, 'all_failed')
+        assert.ok(facts.regions[0].error.includes('has no match'))
+        assert.ok(facts.regions[1].error.includes('Artifact parent relay task:'))
+        assert.ok(!facts.regions[1].error.includes('sent a message:'))
+        const help = JSON.parse(facts.regions[1].error.match(/Safe split ranges .*?: (\{.*\})\. Each range/)[1])
+        assert.equal(help.ranges.length, 1)
+        assert.ok(!JSON.stringify(help).includes('summary'))
+        blocks = [{ type: 'tool-call', id: ToolCallId('artifact-boundary-retry'), name: 'context_compress', arguments: JSON.stringify({ regions: help.ranges.map(range => ({ range, summary: 'Artifact relay work conclusion retained.' })) }) }]
+      } else if (boundaryIndex === 3) blocks = [{ type: 'text', text: 'Artifact boundary retry finished.' }]
+      else throw new Error('Unexpected boundary model request')
+      boundaryIndex++
+      for (const [i, block] of blocks.entries()) {
+        yield { type: 'block-start', index: i, blockType: block.type }
+        yield { type: 'block-end', index: i, block }
+      }
+      yield { type: 'finish', reason: { kind: blocks.some(block => block.type === 'tool-call') ? 'tool-calls' : 'stop' } }
+    }
+  }
+  ctx.llm.registerAdapter(['artifact-boundary'], new BoundaryAdapter())
+  const boundaryAgent = await ctx.agentLoop.create(SessionId('acp-artifact-boundary'), { provider: 'artifact-boundary', model: 'scripted' }, { cwd: profile })
+  boundaryAgent.followup(createUserMessage({ content: [
+    { type: 'text', text: 'Agent artifact-parent sent a message: ' },
+    { type: 'text', text: 'Artifact parent relay task: retain the exact protection rules. ' + 'task details '.repeat(700) },
+  ], source: { kind: 'agent-message', form: 'relay', senderSessionId: SessionId('artifact-parent') } }))
+  await boundaryAgent.whenIdle()
+  boundaryAgent.followup(createUserMessage({ content: [{ type: 'text', text: 'Compress the completed relay work.' }], source: { kind: 'user', form: 'notice', summary: 'Maintenance' } }))
+  await boundaryAgent.whenIdle()
+  const boundaryEvents = boundaryAgent.session.snapshotEvents()
+  assert.equal(boundaryRequests.length, 4)
+  assert.equal(boundaryEvents.at(-1).data.reason.kind, 'completed')
+  assert.equal(boundaryEvents.filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-pressure').length, 1)
+  const retry = boundaryEvents.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'artifact-boundary-retry')
+  assert.equal(JSON.parse(retry.data.message.content.find(block => block.type === 'text').text).status, 'batch_success')
   // Registration cleanup is observable while the service tree remains alive.
   const active = [...ctx.loader.entries()].find(row => row.options.id === 'active-context')
   assert.ok(ctx.tools.get('context_compress'))
@@ -167,7 +223,7 @@ try {
   console.log(JSON.stringify({
     sharedPeers: 'Host Cordis/DSH identity; same-version Schemastery',
     loader: 'all rows active, unique ACP provider, Host schema validation',
-    behavior: 'two nonadjacent commits, middle preserved, next-request pair cleanup, replay, provider disposal',
+    behavior: 'two nonadjacent commits, middle preserved, pair cleanup, replay; relay-body map, display exclusion, protected split retry; provider disposal',
     compatibility, testLocalExemptionsOnly: true,
   }, null, 2))
 } finally {

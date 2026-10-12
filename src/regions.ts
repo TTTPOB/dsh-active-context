@@ -5,28 +5,13 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { CompactionId, toolPairingBalancedBefore, toolPairingBalancedAfter } from '@deepseek-ai/dsh-compaction'
-import type { SessionCaptureReader, SessionObservation } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-token-meter'
-import { assertCompleteToolPairs, expandToolPairs, RegionSelectionError, protectedNodes, type ProtectionReason, type SurfaceCapture } from './protection.ts'
+import { assertCompleteToolPairs, expandToolPairs, RegionSelectionError, protectedNodes, sampleSurface, type ProtectionReason, type SurfaceCapture } from './protection.ts'
+import { literalClue, safeSplitRanges } from './boundaries.ts'
+import { endpointMatches } from './endpoints.ts'
 import type { ActiveCompactionEngine } from './provider.ts'
 import type { AcpConfig, AcpState, BatchFacts, CompressInput, ExecutionIdentity, RegionFact, ResolvedRegion, TextEndpoint } from './types.ts'
 import type { ToolExecutionFailure, ToolRunContext } from '@deepseek-ai/dsh-tools'
-
-/** Detach the exact active Session while the Query reader is borrowed. */
-function sample(agent: Agent, reader: SessionCaptureReader, observation: SessionObservation): SurfaceCapture {
-  if (reader !== agent.session) throw new Error('ACP: Query did not select the calling live Session')
-  const seqs = [...reader.surface.nodes]
-  const events = seqs.map(seq => {
-    const event = observation.events[seq]
-    if (event === undefined) throw new Error(`ACP: Surface node ${seq} is outside the observed Log`)
-    return event
-  })
-  return {
-    seqs, events,
-    messages: events.map(event => structuredClone(reader.deriveEventMessage(event))),
-    log: [...observation.events],
-  }
-}
 
 /** Reject malformed author budgets before any native compaction transaction starts. */
 function validateInput(ctx: Context, input: CompressInput, config: AcpConfig): void {
@@ -51,36 +36,35 @@ function validateInput(ctx: Context, input: CompressInput, config: AcpConfig): v
 
 /** Scan every current node; multiple matching blocks within one node count once. */
 function resolveEndpoint(surface: SurfaceCapture, endpoint: TextEndpoint, regionIndex: number, position: number): number {
-  const matches: { index: number; role: string; text: string }[] = []
-  surface.messages.forEach((message, index) => {
-    if (message === null || (endpoint.role !== undefined && message.role !== endpoint.role)) return
-    const block = message.content.find(block => block.type === 'text' && block.text.includes(endpoint.text))
-    if (block?.type === 'text') matches.push({ index, role: message.role, text: block.text })
-  })
+  const matches = endpointMatches(surface, endpoint)
   if (matches.length === 1) return matches[0]!.index
   const bounded = (text: string) => Array.from(text).slice(0, 160).join('')
   const clues = matches.slice(0, 4).map(match => ({ role: match.role, text: bounded(match.text) }))
-  throw new RegionSelectionError(`ACP: region ${regionIndex} endpoint ${position} ${matches.length === 0 ? 'has no match' : 'is ambiguous'} in current derived message text blocks (case-sensitive literal substring, no normalization). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, clues })}`)
+  throw new RegionSelectionError(`ACP: region ${regionIndex} endpoint ${position} ${matches.length === 0 ? 'has no match' : 'is ambiguous'} in eligible current derived message text blocks (case-sensitive literal substring, no normalization; ACP pressure/status displays and context_compress results excluded as endpoints). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, clues })}`)
 }
 
 /** Report bounded blocker text and reasons without introducing another selection interface. */
 function assertUnprotected(
   surface: SurfaceCapture, seqs: readonly SessionSeq[], protection: ReadonlyMap<SessionSeq, readonly ProtectionReason[]>,
-  regionIndex: number, phase: 'preflight' | 'revalidation',
+  regionIndex: number, phase: 'preflight' | 'revalidation', agent: Agent, originalStart: number, originalEnd: number,
 ): void {
   const blocked = seqs.filter(seq => protection.has(seq))
   if (blocked.length === 0) return
   const blockers = blocked.slice(0, 4).map(seq => {
     const index = surface.seqs.indexOf(seq)
     const message = surface.messages[index]
-    const text = message?.content.find(block => block.type === 'text')
+    const clue = literalClue(surface, index)
     return {
       role: message?.role ?? null,
       event_type: surface.events[index]?.type,
       reasons: protection.get(seq),
-      text_excerpt: text?.type === 'text' ? Array.from(text.text).slice(0, 160).join('') : null,
+      text_excerpt: clue.text_excerpt,
+      unique: clue.unique,
     }
   })
+  const splits = blocked.some(seq => protection.get(seq)?.includes('current_step'))
+    ? { ranges: [], unavailable: 'current_step is a hard rejection; no split suggestions' }
+    : safeSplitRanges(surface, protection, agent.session, originalStart, originalEnd)
   const status = `${phase} rejected this region; independent regions may continue.`
   const carrier = blocked.some(seq => protection.get(seq)?.includes('latest_task_checkpoint'))
     ? ' A blocked summary carries the latest request driving the current Turn and is protected until a newer request arrives.' : ''
@@ -88,6 +72,7 @@ function assertUnprotected(
     `ACP: region ${regionIndex} contains protected context. ${status}`
     + ` Protected blockers: ${blocked.length}; showing ${blockers.length}. ${JSON.stringify(blockers)}`
     + carrier
+    + ` Safe split ranges (within original range; write a separate summary for each; finer selections allowed): ${JSON.stringify(splits)}.`
     + ' Each range includes both complete endpoint nodes and every node between them. Move the boundaries or split around the blockers. Tool-call/result pairs are automatically completed before protection checks. Retry with distinctive literal text endpoints, not diagnostic metadata. A null text_excerpt means the node has no text block.',
   )
 }
@@ -98,7 +83,7 @@ export async function preflightRegions(
 ): Promise<{ regions: ResolvedRegion[]; facts: RegionFact[] }> {
   validateInput(ctx, input, config)
   return ctx.sessionQuery.captureSession(agent.id, (reader, observation) => {
-    const surface = sample(agent, reader, observation)
+    const surface = sampleSurface(agent, reader, observation)
     const protection = protectedNodes(surface, identity, config)
     const measurement = ctx.tokenMeter.measure(agent.session)
     if (!isDeepStrictEqual(measurement.nodes.map(node => node.seq), surface.seqs)) throw new Error('ACP: Surface changed during preflight; select current text again')
@@ -118,7 +103,7 @@ export async function preflightRegions(
         const measured = measurement.nodes.slice(startIndex, endIndex + 1)
         const region: ResolvedRegion = {
           input: item, inputIndex, expanded: startIndex !== originalStart || endIndex !== originalEnd,
-          start: seqs[0]!, end: seqs.at(-1)!, startIndex, endIndex, seqs,
+          start: seqs[0]!, end: seqs.at(-1)!, endpointSeqs: [surface.seqs[originalStart]!, surface.seqs[originalEnd]!], startIndex, endIndex, seqs,
           events: surface.events.slice(startIndex, endIndex + 1), messages: surface.messages.slice(startIndex, endIndex + 1), measurement,
           shadowedRouteTokens: measured.reduce((sum, node) => sum + node.tokens, 0),
           shadowedHeuristicTokens: measured.reduce((sum, node) => sum + node.heuristicTokens, 0),
@@ -131,7 +116,7 @@ export async function preflightRegions(
         if (!toolPairingBalancedBefore(agent.session, region.start) || !toolPairingBalancedAfter(agent.session, region.end)) {
           throw new RegionSelectionError(`ACP: region ${inputIndex} cannot complete balanced native tool-pair boundaries in the current context`)
         }
-        assertUnprotected(surface, seqs, protection, inputIndex, 'preflight')
+        assertUnprotected(surface, seqs, protection, inputIndex, 'preflight', agent, originalStart, originalEnd)
       } catch (error) {
         if (!(error instanceof RegionSelectionError)) throw error
         facts[inputIndex]!.status = 'failed'
@@ -158,7 +143,7 @@ export async function preflightRegions(
 /** Re-resolve each original node list after earlier native replacements. */
 async function revalidate(ctx: Context, agent: Agent, identity: ExecutionIdentity, region: ResolvedRegion, config: AcpConfig): Promise<void> {
   await ctx.sessionQuery.captureSession(agent.id, (reader, observation) => {
-    const surface = sample(agent, reader, observation)
+    const surface = sampleSurface(agent, reader, observation)
     const start = surface.seqs.indexOf(region.start)
     const end = surface.seqs.indexOf(region.end)
     if (start < 0 || end < start || !isDeepStrictEqual(surface.seqs.slice(start, end + 1), region.seqs)
@@ -167,7 +152,8 @@ async function revalidate(ctx: Context, agent: Agent, identity: ExecutionIdentit
       throw new RegionSelectionError(`ACP: target ${region.inputIndex} changed since preflight; select current text again`)
     }
     const protection = protectedNodes(surface, identity, config)
-    assertUnprotected(surface, region.seqs, protection, region.inputIndex, 'revalidation')
+    assertUnprotected(surface, region.seqs, protection, region.inputIndex, 'revalidation', agent,
+      surface.seqs.indexOf(region.endpointSeqs[0]), surface.seqs.indexOf(region.endpointSeqs[1]))
     assertCompleteToolPairs(surface.messages.slice(start, end + 1))
   }, { projectionMode: 'none' })
 }
