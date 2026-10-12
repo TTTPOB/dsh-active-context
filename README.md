@@ -29,7 +29,7 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 
 匹配不搜索 reasoning、工具参数、附件占位、provider wrapper 或原始 Log，也不提供 regex、occurrence、模糊匹配或 ID 选区。正文已被替换时，只能命中当前摘要节点，不代表旧原节点仍存活。任一端点缺失或歧义、倒序、区间重叠或相邻、保护或工具配对不满足，都会在写入前拒绝全批。
 
-当前 system/developer、当前 Step、最近任务输入（包括承载该输入的存活 checkpoint）及存活的 `form:instructions` 受保护。选区不会自动扩界。全批成功且最终工具结果正常落档后，插件在下一 Step 的原生压力检查前，用短确认替换相邻调用与结果节点；错误、部分成功、取消及清理前中断保留原工具对。
+当前 system/developer、当前 Step、最近任务输入（包括承载该输入的存活 checkpoint）及存活的 `form:instructions` 受保护，包括选区中间的节点。保护拒绝返回阻挡节点总数、最多四个节点的角色、保护原因与短原文，供缩边界或拆区；无正文时明确标注。选区不会自动扩界。全批成功且最终工具结果正常落档后，插件在下一 Step 的原生压力检查前，用短确认替换相邻调用与结果节点；错误、部分成功、取消及清理前中断保留原工具对。
 
 ## 配置与运行条件
 
@@ -39,7 +39,7 @@ ACP 替换唯一 `compaction` provider；使用时须禁用原 Basic provider。
 
 | 配置 | 默认值 | 用途 |
 |---|---:|---|
-| `maxRegions` | 4 | 每批区间上限，至少允许 2 |
+| `maxRegions` | 16 | 每批区间上限，至少允许 2 |
 | `summaryMaxTokens` / `summaryMaxBytes` | 8000 / 32000 | 全批摘要总预算 |
 | `resultMaxBytes` | 16000 | 工具结果预算 |
 | `confirmationMaxTokens` / `confirmationMaxBytes` / `confirmationMaxIds` | 256 / 2048 / 4 | 成功工具对清理后的短确认预算 |
@@ -47,7 +47,7 @@ ACP 替换唯一 `compaction` provider；使用时须禁用原 Basic provider。
 | `taskSourceKinds` | `user`, `agent-message`, `goal`, `schedule` | 最新任务来源；notice 不作为任务，agent-message 只认 relay |
 | `pressureRoutes` | `[]` | 仅显式路由启用提前提醒 |
 
-提醒包含压力、计量依据和简短行动建议，不附候选区间。每个启用路由指定 `provider`、`model`、`nudgeAtTokens`（S）和 `resetBelowTokens`（R），满足 `0 <= R < S < H`；H 是原生自动压缩线。每段持续高压只提醒一次，实时计量低于 R 才复位；恢复时保留已落档提醒状态。提醒不额外发起模型请求，不改变原生兜底。
+提醒使用英文，包含压力、计量依据和行动建议，不附候选区间；完整提醒超预算直接报错并列出实际计量与配置上限，不降级为短提醒。每个启用路由指定 `provider`、`model`、`nudgeAtTokens`（S）和 `resetBelowTokens`（R），满足 `0 <= R < S < H`；H 是原生自动压缩线。每段持续高压只提醒一次，实时计量低于 R 才复位；恢复时保留已落档提醒状态。提醒不额外发起模型请求，不改变原生兜底。
 
 ## 开发文档
 

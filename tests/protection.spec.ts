@@ -3,7 +3,7 @@ import { createMessage, createSystemMessage, createToolResultMessage, createUser
 import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { AcpConfigSchema } from '../src/config.ts'
-import { assertCompleteToolPairs, protectedSeqs, type SurfaceCapture } from '../src/protection.ts'
+import { assertCompleteToolPairs, protectedNodes, type SurfaceCapture } from '../src/protection.ts'
 import { preflightRegions } from '../src/regions.ts'
 import { providerFixture } from './provider-fixture.ts'
 import type { ExecutionIdentity } from '../src/types.ts'
@@ -31,10 +31,15 @@ describe('active context protection', () => {
     const events = seqs.map(seq => { const event = log[seq]; if (!event) throw new Error('missing fixture event'); return event })
     const surface: SurfaceCapture = { seqs, events, messages: events.map(event => session.deriveEventMessage(event)), log }
     const identity: ExecutionIdentity = { sessionId: session.id, turn: 1, step: 2, assistantSeq: SessionSeq(currentStep), callId: ToolCallId('test-call'), provider: 'test', model: 'test' }
-    const protectedNodes = protectedSeqs(surface, identity, AcpConfigSchema({}))
-    expect([...protectedNodes]).toEqual(expect.arrayContaining([system, developer, instructions, latestTask, currentStep]))
-    expect(protectedNodes.has(oldTask)).toBe(false)
-    expect(protectedNodes.has(oldStep)).toBe(false)
+    const protection = protectedNodes(surface, identity, AcpConfigSchema({}))
+    expect([...protection.keys()]).toEqual(expect.arrayContaining([system, developer, instructions, latestTask, currentStep]))
+    expect(protection.has(oldTask)).toBe(false)
+    expect(protection.has(oldStep)).toBe(false)
+    expect(protection.get(system)).toEqual(['system_or_developer'])
+    expect(protection.get(developer)).toEqual(['system_or_developer'])
+    expect(protection.get(instructions)).toEqual(['live_instructions'])
+    expect(protection.get(latestTask)).toEqual(['latest_task_input'])
+    expect(protection.get(currentStep)).toEqual(['current_step'])
   })
 
   it('protects the checkpoint when native overflow folded the latest task before a later Step', async () => {
@@ -52,7 +57,7 @@ describe('active context protection', () => {
       const block = message.content.find(block => block.type === 'text')!
       if (block.type !== 'text') throw new Error('Checkpoint has no text')
       const input = fixture.input([{ range: [{ text: block.text }, { text: block.text }], summary: 'replacement' }])
-      await expect(preflightRegions(fixture.ctx, fixture.agent, identity, input, fixture.config)).rejects.toThrow(/protected/)
+      await expect(preflightRegions(fixture.ctx, fixture.agent, identity, input, fixture.config)).rejects.toThrow(/latest_task_checkpoint.*carries the latest request driving the current Turn/)
     } finally { await fixture.dispose() }
   })
 

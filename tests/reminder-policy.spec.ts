@@ -137,25 +137,59 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
     }
   })
 
-  it('bounds the complete user Message including framing and metadata, then falls back to short notice', async () => {
-    for (const budget of [{ reminderMaxTokens: 1200, reminderMaxBytes: 6000 }, { reminderMaxTokens: 60, reminderMaxBytes: 500 }]) {
-      const config = configFor(budget)
-      const fixture = await reminderFixture(config)
-      try {
-        fixture.adapter.reply = () => [{ type: 'text', text: '旧结论😀'.repeat(600) }]
-        await fixture.run(largeTask)
-        await fixture.run('Continue after a large multibyte conclusion.')
-        const message = notices(fixture.agent.session)[0]!.data
-        expect(fixture.ctx.tokenMeter.estimateMessage(message)).toBeLessThanOrEqual(config.reminderMaxTokens)
-        expect(Buffer.byteLength(JSON.stringify(message), 'utf8')).toBeLessThanOrEqual(config.reminderMaxBytes)
-        expect(body(message)).toContain('宿主上下文维护提醒')
-        expect(body(message)).toContain('estimated')
-        if (budget.reminderMaxBytes === 6000) expect(body(message)).toContain('独特原文端点')
-      } finally { await fixture.ctx.fiber.dispose() }
-    }
+  it('emits the complete English notice and summary within the full Message budgets', async () => {
+    const config = configFor({ reminderMaxTokens: 1200, reminderMaxBytes: 6000, maxRegions: 3 })
+    const fixture = await reminderFixture(config)
+    try {
+      await fixture.run(largeTask)
+      const measurement = fixture.ctx.tokenMeter.measure(fixture.agent.session)
+      await fixture.run('Continue after completed work.')
+      const message = notices(fixture.agent.session)[0]!.data
+      expect(body(message)).toBe(
+        'Host context maintenance notice: context pressure is high.\n'
+        + `T≈${measurement.totalTokens} tokens; native automatic compaction threshold H=80000.\n`
+        + `Measurement basis: estimated; baseline=${measurement.baseline.tokens}; delta=${measurement.surfaceDeltaTokens}.\n\n`
+        + 'Use context_compress to summarize completed work that no longer needs verbatim history. '
+        + 'Prefer a complete multi-message work phase over isolated reports. '
+        + 'Select 1–3 non-adjacent regions using distinctive literal text endpoints; read back history if needed. '
+        + 'Exclude protected nodes throughout each range and keep tool-call/result pairs complete. '
+        + 'Submit one standalone native/both call, with no task prose or other tools.',
+      )
+      expect(message.source).toMatchObject({ summary: 'High context pressure; summarize completed history.' })
+      expect(fixture.ctx.tokenMeter.estimateMessage(message)).toBeLessThanOrEqual(config.reminderMaxTokens)
+      expect(Buffer.byteLength(JSON.stringify(message), 'utf8')).toBeLessThanOrEqual(config.reminderMaxBytes)
+    } finally { await fixture.ctx.fiber.dispose() }
   })
 
-  it('offers short action advice in a long Turn without copying history or instructions', async () => {
+  it.each([
+    { reminderMaxTokens: 1, reminderMaxBytes: 6000 },
+    { reminderMaxTokens: 1200, reminderMaxBytes: 1 },
+  ])('rejects the full notice at generation, without consuming the episode: %j', async budget => {
+    const config = { ...configFor(), ...budget }
+    // Installation must not simulate unknown runtime values to enforce a short minimum.
+    const fixture = await reminderFixture(config)
+    try {
+      let frame: Parameters<NonNullable<typeof fixture.state.before>>[0] | undefined
+      fixture.state.before = value => { frame = value }
+      await fixture.run(largeTask)
+      if (frame === undefined || fixture.state.hooks === undefined) throw new Error('Missing reminder hook frame')
+      const decision = { kind: 'enter' as const, messages: [createUserMessage({ content: [{ type: 'text', text: 'Continue.' }], source: { kind: 'user' } })] }
+      await expect(fixture.state.hooks.noticeAfterNative(frame, decision)).rejects.toThrow(
+        new RegExp('required estimated tokens=\\d+, actual UTF-8 bytes=\\d+; '
+          + `configured reminderMaxTokens=${budget.reminderMaxTokens}, reminderMaxBytes=${budget.reminderMaxBytes}\\. `
+          + 'Increase reminderMaxTokens/reminderMaxBytes'),
+      )
+      expect(notices(fixture.agent.session)).toHaveLength(0)
+      config.reminderMaxTokens = 1200
+      config.reminderMaxBytes = 6000
+      await fixture.run('Retry with room for the complete notice.')
+      expect(notices(fixture.agent.session)).toHaveLength(1)
+      await fixture.run('Already committed; do not repeat.')
+      expect(notices(fixture.agent.session)).toHaveLength(1)
+    } finally { await fixture.ctx.fiber.dispose() }
+  })
+
+  it('offers complete action advice in a long Turn without copying history or instructions', async () => {
     const fixture = await reminderFixture(configFor({ pressureRoutes: [
       { provider: 'reminder', model: 'working', nudgeAtTokens: 1800, resetBelowTokens: 200 },
     ] }))
@@ -176,7 +210,7 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
       expect(adapter.requests).toHaveLength(2)
       expect(notices(agent.session)).toHaveLength(1)
       const message = notices(agent.session)[0]!.data
-      expect(body(message)).toContain('独特原文端点')
+      expect(body(message)).toContain('distinctive literal text endpoints')
       expect(body(message)).toContain('context_compress')
       expect(body(message)).not.toContain('Completed old analysis')
       expect(body(message)).not.toContain('LIVE INSTRUCTIONS')

@@ -6,6 +6,17 @@ import { AcpConfigSchema } from '../src/config.ts'
 import { providerFixture } from './provider-fixture.ts'
 
 describe('active region batches', () => {
+  it('defaults to sixteen regions and rejects seventeen before writing', async () => {
+    const fixture = await providerFixture()
+    try {
+      expect(fixture.config.maxRegions).toBe(16)
+      const before = fixture.session.seq
+      const regions = Array.from({ length: 17 }, () => fixture.input().regions[0]!)
+      await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, fixture.input(regions), fixture.config)).rejects.toThrow('submit 1-16 non-adjacent regions')
+      expect(fixture.session.seq).toBe(before)
+    } finally { await fixture.dispose() }
+  })
+
   it('preserves final cancellation details and committed metering facts in one bounded result', () => {
     const rendered = renderBatchFacts({ status: 'partial', executionOrder: [0], regions: [{
       inputIndex: 0, status: 'committed_with_error', compactionId: CompactionId('native-id'),
@@ -43,7 +54,7 @@ describe('active region batches', () => {
     try {
       const before = fixture.session.seq
       const protectedBatch = fixture.input([{ ...fixture.input().regions[0]!, range: [{ text: 'current task' }, { text: 'current task' }] }])
-      await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, protectedBatch, fixture.config)).rejects.toThrow(/protected/)
+      await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, protectedBatch, fixture.config)).rejects.toThrow(/no regions were committed.*latest_task_input.*current task/)
       await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, fixture.input(), { ...fixture.config, summaryMaxBytes: 20 })).rejects.toThrow(/total budget/)
       expect(fixture.session.seq).toBe(before)
     } finally { await fixture.dispose() }

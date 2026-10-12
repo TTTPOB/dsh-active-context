@@ -18,7 +18,7 @@ const route = z.object({
 
 /** Budget defaults are conservative initial limits; route thresholds require deployment values. */
 export const AcpConfigSchema: z<Partial<SchemaAcpConfig>, SchemaAcpConfig> = z.object({
-  maxRegions: z.number().step(1).min(2).default(4),
+  maxRegions: z.number().step(1).min(2).default(16),
   summaryMaxTokens: positive().default(8000),
   summaryMaxBytes: positive().default(32000),
   resultMaxBytes: positive().default(16000),

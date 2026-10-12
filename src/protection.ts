@@ -41,29 +41,32 @@ export function latestTaskCarriers(events: Iterable<SessionEvent>, config: AcpCo
   return carriers
 }
 
-/** Protect current instructions, the active Step, and the latest task's live representation. */
-export function protectedSeqs(
+/** Reasons attached to each protected current Surface node. */
+export type ProtectionReason = 'system_or_developer' | 'live_instructions' | 'current_step' | 'latest_task_input' | 'latest_task_checkpoint'
+
+/** Identify protected nodes and all applicable reasons for actionable rejection diagnostics. */
+export function protectedNodes(
   surface: SurfaceCapture,
   identity: ExecutionIdentity,
   config: AcpConfig,
-): ReadonlySet<SessionSeq> {
+): ReadonlyMap<SessionSeq, readonly ProtectionReason[]> {
   const step = surface.log.findLast(event => event.type === 'step/start')
   if (step?.type !== 'step/start' || step.data.turn !== identity.turn || step.data.step !== identity.step) {
     throw new Error('ACP: the calling Step is no longer current')
   }
-  const protectedNodes = new Set<SessionSeq>()
+  const nodes = new Map<SessionSeq, readonly ProtectionReason[]>()
   const latestTaskNodes = latestTaskCarriers(surface.log, config)
   surface.seqs.forEach((seq, index) => {
     const event = surface.events[index]
     const message = surface.messages[index]
-    if (event?.type === 'system/message' || event?.type === 'developer/message'
-      || seq >= step.seq || (message !== null && message !== undefined
-        && 'form' in message.source && message.source.form === 'instructions')) {
-      protectedNodes.add(seq)
-    }
-    if (latestTaskNodes.has(seq)) protectedNodes.add(seq)
+    const reasons: ProtectionReason[] = []
+    if (event?.type === 'system/message' || event?.type === 'developer/message') reasons.push('system_or_developer')
+    if (seq >= step.seq) reasons.push('current_step')
+    if (message != null && 'form' in message.source && message.source.form === 'instructions') reasons.push('live_instructions')
+    if (latestTaskNodes.has(seq)) reasons.push(message?.source.kind === 'compact-checkpoint' ? 'latest_task_checkpoint' : 'latest_task_input')
+    if (reasons.length > 0) nodes.set(seq, reasons)
   })
-  return protectedNodes
+  return nodes
 }
 
 /** Each selected call occurrence must have exactly one selected matching result. */

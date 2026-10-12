@@ -1,6 +1,6 @@
 /** Post-native pressure notices; only durable user-message commits consume an episode. */
 import type { Context } from '@deepseek-ai/cordis'
-import { boundContextSummary, createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
+import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { ContextFormed, MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -32,28 +32,29 @@ function pressureBasis(measurement: TokenMeasurement): string {
   return measurement.baseline.kind === 'usage' ? 'API usage + estimated delta' : 'estimated'
 }
 
-function shortText(tokens: number, basis: string): string {
-  return `宿主上下文维护提醒：T≈${tokens} tokens（${basis}），上下文压力偏高。`
-}
-
-function fits(ctx: Context, config: AcpConfig, message: UserMessage): boolean {
-  return ctx.tokenMeter.estimateMessage(message) <= config.reminderMaxTokens
-    && Buffer.byteLength(JSON.stringify(message), 'utf8') <= config.reminderMaxBytes
-}
-
 function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, nativeAt: number): UserMessage {
-  const basis = pressureBasis(measurement)
-  const short = createUserMessage({
-    content: [{ type: 'text', text: shortText(measurement.totalTokens, basis) }],
-    source: { kind: 'acp-pressure', form: 'notice', summary: boundContextSummary('上下文压力偏高；请准备维护摘要') },
+  const message = createUserMessage({
+    content: [{ type: 'text', text:
+      'Host context maintenance notice: context pressure is high.\n'
+      + `T≈${measurement.totalTokens} tokens; native automatic compaction threshold H=${nativeAt}.\n`
+      + `Measurement basis: ${pressureBasis(measurement)}; baseline=${measurement.baseline.tokens}; delta=${measurement.surfaceDeltaTokens}.\n\n`
+      + 'Use context_compress to summarize completed work that no longer needs verbatim history. '
+      + 'Prefer a complete multi-message work phase over isolated reports. '
+      + `Select 1–${config.maxRegions} non-adjacent regions using distinctive literal text endpoints; read back history if needed. `
+      + 'Exclude protected nodes throughout each range and keep tool-call/result pairs complete. '
+      + 'Submit one standalone native/both call, with no task prose or other tools.',
+    }],
+    source: { kind: 'acp-pressure', form: 'notice', summary: boundContextSummary('High context pressure; summarize completed history.') },
   })
-  if (!fits(ctx, config, short)) throw new Error('ACP: reminder budgets cannot fit the complete short pressure notice')
-  const heading = `宿主上下文维护提醒：T≈${measurement.totalTokens} tokens；原生自动压缩线 H=${nativeAt}。\n`
-    + `计量依据：${basis}；baseline=${measurement.baseline.tokens}，delta=${measurement.surfaceDeltaTokens}。`
-  const withText = (text: string) => freezeMessage({ ...short, content: [{ type: 'text' as const, text }] })
-  const pressureOnly = withText(heading)
-  const advice = withText(heading + '\n选择已处理的旧内容，用独特原文端点提交 context_compress 摘要；必要时先用历史工具回读。保留当前任务与存活指令。')
-  return fits(ctx, config, advice) ? advice : fits(ctx, config, pressureOnly) ? pressureOnly : short
+  const requiredTokens = ctx.tokenMeter.estimateMessage(message)
+  const requiredBytes = Buffer.byteLength(JSON.stringify(message), 'utf8')
+  if (requiredTokens > config.reminderMaxTokens || requiredBytes > config.reminderMaxBytes) {
+    throw new Error('ACP: complete pressure notice exceeds reminder budgets: '
+      + `required estimated tokens=${requiredTokens}, actual UTF-8 bytes=${requiredBytes}; `
+      + `configured reminderMaxTokens=${config.reminderMaxTokens}, reminderMaxBytes=${config.reminderMaxBytes}. `
+      + 'Increase reminderMaxTokens/reminderMaxBytes to fit the complete notice.')
+  }
+  return message
 }
 
 /**
@@ -61,6 +62,7 @@ function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, 
  * Empty pressureRoutes explicitly disables early notices, not native compaction.
  * Unlisted routes are not enabled. Missing capacity and invalid dynamic H are
  * diagnosed once per route; native handling and the admitted decision survive.
+ * A complete notice exceeding either budget throws at generation without consuming the episode.
  * @param ctx - Plugin effect context with the production meter and LLM runtime.
  * @param config - ACP budgets and exact-route R/S thresholds.
  * @param basic - Validated configuration owned by the native Basic provider.
@@ -71,13 +73,6 @@ export function installReminder(ctx: Context, config: AcpConfig, basic: Reminder
   const warned = new Set<string>()
   let active = true
   ctx.effect(() => () => { active = false })
-  if (config.pressureRoutes.length > 0) {
-    const minimum = createUserMessage({
-      content: [{ type: 'text', text: shortText(Number.MAX_SAFE_INTEGER, 'API usage + estimated delta') }],
-      source: { kind: 'acp-pressure', form: 'notice', summary: boundContextSummary('上下文压力偏高；请准备维护摘要') },
-    })
-    if (!fits(ctx, config, minimum)) throw new Error('ACP: reminderMaxTokens/reminderMaxBytes must fit a complete short pressure notice')
-  }
   ctx.on('session/event', (session, event) => {
     const episode = episodes.get(session)
     if (episode === undefined || event.type !== 'user/message' || event.surfaceOp !== 'append'

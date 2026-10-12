@@ -7,7 +7,7 @@ import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import type { SessionCaptureReader, SessionObservation } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-token-meter'
-import { assertCompleteToolPairs, protectedSeqs, type SurfaceCapture } from './protection.ts'
+import { assertCompleteToolPairs, protectedNodes, type ProtectionReason, type SurfaceCapture } from './protection.ts'
 import type { ActiveCompactionEngine } from './provider.ts'
 import type { AcpConfig, AcpState, BatchFacts, CompressInput, ExecutionIdentity, RegionFact, ResolvedRegion, TextEndpoint } from './types.ts'
 import type { ToolExecutionFailure, ToolRunContext } from '@deepseek-ai/dsh-tools'
@@ -63,6 +63,37 @@ function resolveEndpoint(surface: SurfaceCapture, endpoint: TextEndpoint, region
   throw new Error(`ACP: region ${regionIndex} endpoint ${position} ${matches.length === 0 ? 'has no match' : 'is ambiguous'} in current derived message text blocks (case-sensitive literal substring, no normalization). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, clues })}`)
 }
 
+/** Report bounded blocker text and reasons without introducing another selection interface. */
+function assertUnprotected(
+  surface: SurfaceCapture, seqs: readonly SessionSeq[], protection: ReadonlyMap<SessionSeq, readonly ProtectionReason[]>,
+  regionIndex: number, phase: 'preflight' | 'revalidation',
+): void {
+  const blocked = seqs.filter(seq => protection.has(seq))
+  if (blocked.length === 0) return
+  const blockers = blocked.slice(0, 4).map(seq => {
+    const index = surface.seqs.indexOf(seq)
+    const message = surface.messages[index]
+    const text = message?.content.find(block => block.type === 'text')
+    return {
+      role: message?.role ?? null,
+      event_type: surface.events[index]?.type,
+      reasons: protection.get(seq),
+      text_excerpt: text?.type === 'text' ? Array.from(text.text).slice(0, 160).join('') : null,
+    }
+  })
+  const status = phase === 'preflight'
+    ? 'Preflight rejected the entire batch; no regions were committed.'
+    : 'Revalidation stopped execution; earlier committed regions are not rolled back.'
+  const carrier = blocked.some(seq => protection.get(seq)?.includes('latest_task_checkpoint'))
+    ? ' A blocked summary carries the latest request driving the current Turn and is protected until a newer request arrives.' : ''
+  throw new Error(
+    `ACP: region ${regionIndex} contains protected context. ${status}`
+    + ` Protected blockers: ${blocked.length}; showing ${blockers.length}. ${JSON.stringify(blockers)}`
+    + carrier
+    + ' Each range includes both complete endpoint nodes and every node between them. Move the boundaries or split around the blockers, preserving complete tool-call/result pairs. Retry with distinctive literal text endpoints, not diagnostic metadata. A null text_excerpt means the node has no text block.',
+  )
+}
+
 /** Resolve all selections before starting any native transaction. */
 export async function preflightRegions(
   ctx: Context, agent: Agent, identity: ExecutionIdentity, input: CompressInput, config: AcpConfig,
@@ -70,7 +101,7 @@ export async function preflightRegions(
   validateInput(ctx, input, config)
   return ctx.sessionQuery.captureSession(agent.id, (reader, observation) => {
     const surface = sample(agent, reader, observation)
-    const protectedNodes = protectedSeqs(surface, identity, config)
+    const protection = protectedNodes(surface, identity, config)
     const measurement = ctx.tokenMeter.measure(agent.session)
     if (!isDeepStrictEqual(measurement.nodes.map(node => node.seq), surface.seqs)) throw new Error('ACP: Surface changed during preflight; select current text again')
     const resolved = input.regions.map((item, inputIndex): ResolvedRegion => {
@@ -81,7 +112,7 @@ export async function preflightRegions(
       const start = seqs[0]
       const end = seqs.at(-1)
       if (start === undefined || end === undefined) throw new Error(`ACP: region ${inputIndex} is empty`)
-      if (seqs.some(seq => protectedNodes.has(seq))) throw new Error(`ACP: region ${inputIndex} contains protected context`)
+      assertUnprotected(surface, seqs, protection, inputIndex, 'preflight')
       const messages = surface.messages.slice(startIndex, endIndex + 1)
       assertCompleteToolPairs(messages)
       const measured = measurement.nodes.slice(startIndex, endIndex + 1)
@@ -113,8 +144,8 @@ async function revalidate(ctx: Context, agent: Agent, identity: ExecutionIdentit
       || !isDeepStrictEqual(surface.messages.slice(start, end + 1), region.messages)) {
       throw new Error(`ACP: target ${region.inputIndex} changed since preflight; select current text again`)
     }
-    const protectedNodes = protectedSeqs(surface, identity, config)
-    if (region.seqs.some(seq => protectedNodes.has(seq))) throw new Error(`ACP: target ${region.inputIndex} is now protected`)
+    const protection = protectedNodes(surface, identity, config)
+    assertUnprotected(surface, region.seqs, protection, region.inputIndex, 'revalidation')
     assertCompleteToolPairs(surface.messages.slice(start, end + 1))
   }, { projectionMode: 'none' })
 }

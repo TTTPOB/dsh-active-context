@@ -28,7 +28,14 @@ const endpoint = {
 /** Working-model guidance: summaries are authored here, not by an auxiliary model. */
 export const ACP_INSTRUCTIONS = `When earlier context is no longer needed verbatim, recall exact source events as needed. Submit model-written summaries with context_compress in one standalone assistant response: exactly one native/both context_compress call, no other tools, no task prose, never run_code/PTC. Reasoning is allowed. Choose non-adjacent regions using exactly two literal text endpoints per range, optionally qualified by role. Each endpoint must uniquely match one node in the current derived text blocks; both complete nodes are included and may be the same node. A short distinctive phrase is enough; you need not copy a whole message. Matching is case-sensitive within each individual text block, without trimming or whitespace/Unicode normalization. Text does not select character cuts or act as regex; reasoning, tool arguments and the Log are not searched. Repeated hits within one node count as one match; only matches in different nodes cause ambiguity.
 
-Preserve conclusions, exact names and paths, modifications, verification evidence, failures, open questions, constraints and uncertainty, and readback references. Protected current instructions, current Step and latest task input cannot be selected. On partial or failed submission, select only failed or unattempted work again using current text; committed regions are not rolled back.
+Preserve conclusions, exact names and paths, modifications, verification evidence, failures, open questions, constraints and uncertainty, and readback references. Prefer a completed multi-message work phase over isolated reports when its details are no longer needed verbatim.
+
+Protection applies to every node inside a selected region, not just its endpoints. Do not select:
+- Any live system/developer message or any live message marked form:instructions, even if it appears old.
+- Any node from the current Step. A Step is one model request and its tool execution, not the whole Turn; completed earlier Steps in the same Turn may be compressed.
+- The latest request driving the current Turn. Earlier requests may be compressed unless another protection rule applies. Requests may come from the user, a subagent assignment, an agent relay, a goal or a schedule, as enabled by configuration. Maintenance notices do not count as new requests.
+
+You cannot infer all protection metadata from visible text; the tool validates the entire selected range. If protection rejects a range, use the reported blockers to move its boundaries or split around them. Do not automatically fall back to compressing single messages. Keep complete tool-call/result pairs within each selected region. On partial or failed submission, select only failed or unattempted work again using current text; committed regions are not rolled back.
 
 These examples use completed old history; the current task has a separate newer input. Runtime protection and tool-pair checks still apply.
 
@@ -76,13 +83,13 @@ export function apply(ctx: Context, config: PluginConfig = Config({})): void {
   const guard = installGuard(ctx, config.acp, state)
   const hide = installHide(ctx, config.acp, state)
   const reminder = installReminder(ctx, config.acp, engine.config)
-  ctx.systemPrompt.section({ name: 'active-context', order: 80, text: ACP_INSTRUCTIONS })
+  ctx.systemPrompt.section({ name: 'active-context', order: 80, text: `Submit 1-${config.acp.maxRegions} non-adjacent regions per context_compress call.\n\n${ACP_INSTRUCTIONS}` })
   ctx.tools.register(defineTool({
     name: 'context_compress',
     description: 'Replace old non-adjacent Surface regions with your own summaries. Standalone native/both call only: no other calls or task prose, never run_code/PTC. Each range has exactly two literal text endpoints with optional role, independently unique across current derived text-block nodes; both complete endpoint nodes are included. No reasoning, tool arguments or Log search. Full preflight precedes tail-to-head native transactions; first failure stops, with no rollback. A successful result is committed, with call/result cleanup pending final settlement.',
     parameters: {
       regions: {
-        type: 'array', required: true,
+        type: 'array', required: true, description: `Submit 1-${config.acp.maxRegions} non-adjacent regions per call.`,
         items: {
           type: 'object', additionalProperties: false,
           properties: {
