@@ -8,7 +8,7 @@ import { CompactionId, toolPairingBalancedBefore, toolPairingBalancedAfter } fro
 import type {} from '@deepseek-ai/dsh-token-meter'
 import { assertCompleteToolPairs, expandToolPairs, RegionSelectionError, protectedNodes, sampleSurface, type ProtectionReason, type SurfaceCapture } from './protection.ts'
 import { literalClue, safeSplitRanges } from './boundaries.ts'
-import { endpointMatches } from './endpoints.ts'
+import { endpointClues, endpointMatches } from './endpoints.ts'
 import type { ActiveCompactionEngine } from './provider.ts'
 import type { AcpConfig, AcpState, BatchFacts, CompressInput, ExecutionIdentity, RegionFact, ResolvedRegion, TextEndpoint } from './types.ts'
 import type { ToolExecutionFailure, ToolRunContext } from '@deepseek-ai/dsh-tools'
@@ -16,7 +16,7 @@ import type { ToolExecutionFailure, ToolRunContext } from '@deepseek-ai/dsh-tool
 /** Reject malformed author budgets before any native compaction transaction starts. */
 function validateInput(ctx: Context, input: CompressInput, config: AcpConfig): void {
   if (input.regions.length === 0 || input.regions.length > config.maxRegions) {
-    throw new Error(`ACP: submit 1-${config.maxRegions} non-adjacent regions`)
+    throw new Error(`ACP: submit 1-${config.maxRegions} non-overlapping regions`)
   }
   let bytes = 0
   let tokens = 0
@@ -39,8 +39,8 @@ function resolveEndpoint(surface: SurfaceCapture, endpoint: TextEndpoint, region
   const matches = endpointMatches(surface, endpoint)
   if (matches.length === 1) return matches[0]!.index
   const bounded = (text: string) => Array.from(text).slice(0, 160).join('')
-  const clues = matches.slice(0, 4).map(match => ({ role: match.role, text: bounded(match.text) }))
-  throw new RegionSelectionError(`ACP: region ${regionIndex} endpoint ${position} ${matches.length === 0 ? 'has no match' : 'is ambiguous'} in eligible current derived message text blocks (case-sensitive literal substring, no normalization; ACP pressure/status displays and context_compress results excluded as endpoints). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, clues })}`)
+  const clues = endpointClues(surface, endpoint, matches)
+  throw new RegionSelectionError(`ACP: region ${regionIndex} endpoint ${position} ${matches.length === 0 ? 'has no match' : 'is ambiguous'} in eligible current derived message text blocks (case-sensitive literal substring, no normalization; ACP pressure/status displays and context_compress results excluded as endpoints). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, candidate_count: matches.length, shown: clues.length, clues })}`)
 }
 
 /** Report bounded blocker text and reasons without introducing another selection interface. */
@@ -127,11 +127,19 @@ export async function preflightRegions(
       for (let right = left + 1; right < resolved.length; right += 1) {
         const a = resolved[left]!
         const b = resolved[right]!
-        if (a.startIndex > b.endIndex + 1 || b.startIndex > a.endIndex + 1) continue
+        if (a.startIndex > b.endIndex || b.startIndex > a.endIndex) continue
+        const intersectionCount = Math.min(a.endIndex, b.endIndex) - Math.max(a.startIndex, b.startIndex) + 1
+        const relation = a.startIndex === b.startIndex && a.endIndex === b.endIndex
+          ? `regions ${a.inputIndex} and ${b.inputIndex} have identical ranges`
+          : a.startIndex <= b.startIndex && a.endIndex >= b.endIndex
+            ? `region ${b.inputIndex} is fully contained in region ${a.inputIndex}`
+            : b.startIndex <= a.startIndex && b.endIndex >= a.endIndex
+              ? `region ${a.inputIndex} is fully contained in region ${b.inputIndex}`
+              : `regions ${a.inputIndex} and ${b.inputIndex} partially overlap`
+        const reason = `ACP: ${relation} after tool-pair expansion (shared node_count: ${intersectionCount}); select them again`
         for (const region of [a, b]) {
           const fact = facts[region.inputIndex]!
           fact.status = 'failed'
-          const reason = `ACP: regions ${a.inputIndex} and ${b.inputIndex} overlap or are adjacent after tool-pair expansion; select them again`
           fact.error = fact.error === undefined ? reason : fact.error + '\n' + reason
         }
       }

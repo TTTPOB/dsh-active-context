@@ -58,7 +58,7 @@ it('marks all conflict participants, including a nested region, but commits inde
     const enclosing = { ...select('completed 1'), range: [{ text: 'completed 1' }, { text: 'completed 2' }] }
     const { facts } = await f.submit(f.input([enclosing, select('completed 1'), select('completed 2'), f.input().regions[1]!]))
     expect(facts.regions.map((fact: { status: string }) => fact.status)).toEqual(['failed', 'failed', 'failed', 'committed'])
-    for (const fact of facts.regions.slice(0, 3)) expect(fact.error).toContain('overlap or are adjacent')
+    for (const fact of facts.regions.slice(0, 3)) expect(fact.error).toContain('after tool-pair expansion')
   } finally { await f.dispose() }
 })
 
@@ -176,8 +176,8 @@ it('reports known expansion and rejects both overlap participants even when anot
       f.input([select('known counterpart'), select('partially available calls'), select('completed 3')]), f.config)
     expect(batch.facts.map(fact => fact.status)).toEqual(['failed', 'failed', 'not_attempted'])
     expect(batch.facts[0]).toMatchObject({ expanded: true, error: expect.stringContaining('counterpart is missing') })
-    expect(batch.facts[0]!.error).toContain('overlap or are adjacent')
-    expect(batch.facts[1]!.error).toContain('overlap or are adjacent')
+    expect(batch.facts[0]!.error).toContain('after tool-pair expansion')
+    expect(batch.facts[1]!.error).toContain('after tool-pair expansion')
   } finally { await f.dispose() }
 })
 
@@ -226,7 +226,7 @@ it.each(['interior-notice', 'missing-overlap'] as const)('handles native histori
       expect(facts.status).toBe('all_failed')
       expect(facts.regions.map((fact: { status: string }) => fact.status)).toEqual(['failed', 'failed'])
       expect(facts.regions[0].error).toContain('counterpart is missing')
-      expect(facts.regions[1].error).toContain('overlap or are adjacent')
+      expect(facts.regions[1].error).toContain('after tool-pair expansion')
       expect(session.surface.nodes).toContain(f.old[0])
     }
   } finally { await f.dispose() }

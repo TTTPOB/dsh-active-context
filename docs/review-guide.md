@@ -6,13 +6,13 @@
 
 `context_compress` 在本次调用内通过 Query `captureSession` 同步读取当前调用会话的 Surface、派生消息、事件和计量。borrowed reader 只在 callback 内使用，执行目标以分离后的完整节点资料固定。每个端点分别扫描全部可作端点的当前派生 text block（精确排除 ACP 展示节点，规则见 README）；匹配按节点合并，不能截断扫描后冒充唯一。
 
-两个端点包含完整节点，可以位于同一节点；顺序以 Surface 位置解释，不以内部 seq 排序。工具结果正文可以匹配；宿主自动向外补齐调用／结果，包含同一 assistant 的全部调用、穿越纯文本选区的完整工具跨度及扩展夹入的工具对，直到完整闭包。已知缺失配对范围仍参与双方冲突检查；原生切点平衡在预检确认。扩展后再检查保护和跨 region 冲突。缺失或歧义诊断只含有界原文线索与 role，供模型重新选词。普通历史搜索仍是索引 FTS，不承担字面选区，也不以日志扫描补偿索引失败。
+两个端点包含完整节点，可以位于同一节点；顺序以 Surface 位置解释，不以内部 seq 排序。工具结果正文可以匹配；宿主自动向外补齐调用／结果，包含同一 assistant 的全部调用、穿越纯文本选区的完整工具跨度及扩展夹入的工具对，直到完整闭包。已知缺失配对范围仍参与双方冲突检查；原生切点平衡在预检确认。扩展后再检查保护和跨 region 冲突。缺失或歧义诊断使用有界原文线索与实际 role，工具候选附真实调用名称及 read 的 offset／limit（见 README），供模型重新选词。普通历史搜索仍是索引 FTS，不承担字面选区，也不以日志扫描补偿索引失败。
 
 整体预检固定全部目标后，每次执行前重验原有节点的存活、顺序、事件、派生内容、保护与配对。目标变化使该 region 失败，其他独立合法项仍可继续；不重新匹配同一句话指向另一个节点。普通尾部追加或选区外变化不引入全局 freshness 门槛，单项原生事务仍执行自己的校验。
 
 ## 提交、结算与清理
 
-一条独立 native/both 调用可提交多个非相邻区间。批数、参数结构、总摘要预算和调用身份先全局校验；各 region 独立验证。端点／保护／工具配对错误只使该项失败，扩展后相邻／重叠的所有参与项都失败。其余项从尾到头提交，可归因的选区或原生缩水失败继续，取消、未知故障或不确定提交停止余项；已提交项不回滚。部分成功、取消或 replacement 写入后的错误保留实际提交事实，结果按输入索引关联，并列出实际尝试顺序。
+一条独立 native/both 调用可提交多个不重叠区间。批数、参数结构、总摘要预算和调用身份先全局校验；各 region 独立验证。端点／保护／工具配对错误只使该项失败，扩展后共享节点的所有参与项都失败，相邻但不共享节点的项可独立提交。其余项从尾到头提交，可归因的选区或原生缩水失败继续，取消、未知故障或不确定提交停止余项；已提交项不回滚。部分成功、取消或 replacement 写入后的错误保留实际提交事实，结果按输入索引关联，并列出实际尝试顺序。
 
 保护当前 system/developer、当前 Step、全部存活 instructions，以及最近任务输入和承载它的存活 checkpoint。准入 guard 根据正常落档的 assistant 身份及实际 tool-call blocks 校验独立调用，混合批次、重复调用、缺失身份和 PTC 在压缩事务前拒绝；普通兄弟工具仍按原生调度执行。
 
@@ -30,11 +30,11 @@ ACP 与 Harness 源码位于同一父目录，Harness 提供 Vitest、TypeScript
 
 ```sh
 node tests/typecheck.mjs
-node tests/run.mjs boundaries text-ranges partial-regions regions protection provider compaction-loop compaction-failures recorded-replay guard hide reminder
+node tests/run.mjs boundaries text-ranges endpoint-diagnostics region-conflicts adjacent-regions partial-regions regions protection provider compaction-loop compaction-failures recorded-replay guard hide reminder
 ```
 
 [严格类型检查](<../tests/typecheck.mjs>)检查 ACP 源码及测试，不过滤诊断；[测试入口](<../tests/run.mjs>)使用源码路径别名和既有 Loader、Loop、delivery helper。测试临时目录自动清理，源码验证不替代[打包后隔离安装](<delivery.md>)。
 
-关键行为包括：字面唯一性、缺失与歧义、同节点与多 block、当前摘要替换、逐项失败继续与全局预算拒绝、工具对自动闭包及扩展后保护／冲突、独立调用 guard、双非相邻原生提交、局部执行失败继续与不可恢复故障停止、错误结算事实、部分／完整成功工具对清理、长参数超预算保留原对与 replay，以及真实 relay 正文地图、连续保护分组、唯一原文与明确遗漏、跨边界失败／段内细选、安全 split ranges 在真实 Loop 按原样再次提交、提醒计量、去重和恢复。模型可见输出通过[录制回放](<../tests/recorded-replay.spec.ts>)消费真实嵌入 assistant streams、比较完整规范化 Log，并检查下一请求和最终回答。
+关键行为包括：字面唯一性、缺失与歧义、同节点与多 block、当前摘要替换、逐项失败继续与全局预算拒绝、工具对自动闭包及扩展后保护／冲突、独立调用 guard、相邻／非相邻原生提交、局部执行失败继续与不可恢复故障停止、错误结算事实、部分／完整成功工具对清理、长参数超预算保留原对与 replay，以及真实 relay 正文地图、连续保护分组、唯一原文与明确遗漏、跨边界失败／段内细选、安全 split ranges 在真实 Loop 按原样再次提交、提醒计量、去重和恢复。模型可见输出通过[录制回放](<../tests/recorded-replay.spec.ts>)消费真实嵌入 assistant streams、比较完整规范化 Log，并检查下一请求和最终回答。
 
 源码、成品解析和真实模型质量分别验证。实际预算与成本需结合工作路由、usage、缓存及延迟评估，不能由确定性 fixture 推断固定收益。

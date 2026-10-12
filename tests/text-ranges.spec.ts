@@ -115,7 +115,7 @@ it('resolves current replacement text at its Surface position, never the shadowe
   } finally { await f.dispose() }
 })
 
-it('rejects wrong endpoint counts, overlap and adjacency before native writes', async () => {
+it('rejects wrong endpoint counts and shared nodes before native writes', async () => {
   const f = await providerFixture()
   try {
     const before = f.session.snapshotEvents()
@@ -123,7 +123,6 @@ it('rejects wrong endpoint counts, overlap and adjacency before native writes', 
     for (const regions of [
       [{ ...first, range: [{ text: 'completed 1' }] }],
       [first, first],
-      [region({ text: 'task 1' }), first],
       [region({ text: 'completed 1' }, { text: 'completed 2' }), region({ text: 'completed 2' }, { text: 'completed 3' })],
     ]) {
       const result = await f.submit(f.input(regions))

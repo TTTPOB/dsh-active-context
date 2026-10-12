@@ -123,20 +123,33 @@ try {
     await agent.whenIdle()
   }
   await turn('Historical alpha ' + 'old detail A '.repeat(120))
-  await turn('KEEP MIDDLE: public command must remain unchanged.')
   await turn('Historical beta ' + 'old detail B '.repeat(120))
-  input = { regions: [0, 2].map((index, i) => ({
+  await turn('KEEP MIDDLE: public command must remain unchanged.')
+  input = { regions: [0, 1].map((index, i) => ({
     range: [{ text: index === 0 ? 'Historical alpha ' : 'Historical beta ', role: 'user' },
       { text: 'Historical work complete ' + index, role: 'assistant' }],
     summary: summaries[i],
   })) }
+  const initial = [...agent.session.surface.nodes]
+  const targets = input.regions.map(region => {
+    const indices = region.range.map(endpoint => initial.findIndex(seq => {
+      const message = agent.session.deriveEventMessage(agent.session.eventAt(seq))
+      return message?.role === endpoint.role && message.content.some(block => block.type === 'text' && block.text.includes(endpoint.text))
+    }))
+    assert.ok(indices[0] >= 0 && indices[1] >= indices[0])
+    return initial.slice(indices[0], indices[1] + 1)
+  })
+  assert.equal(initial.indexOf(targets[0].at(-1)) + 1, initial.indexOf(targets[1][0]), 'adjacent complete regions')
   await turn('Complete the task after compressing only the selected history.')
   assert.equal(requests.length, 5)
   const events = agent.session.snapshotEvents()
   assert.equal(events.at(-1).type, 'turn/end')
   assert.equal(events.at(-1).data.reason.kind, 'completed')
   assert.ok(JSON.stringify(agent.session.deriveMessages()).includes('Continued artifact task with preserved constraints.'))
-  assert.equal(events.filter(event => event.type === 'compaction/summary').length, 2)
+  const transactions = events.filter(event => event.type === 'compaction/summary')
+  assert.deepEqual(transactions.map(event => ({ seqs: event.data.shadowedSeqs, summary: event.data.summary })), [1, 0].map(index => ({
+    seqs: targets[index], summary: [{ type: 'text', text: summaries[index] }],
+  })))
   const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'artifact-compress')
   assert.ok(result)
   assert.notEqual(result.data.message.isError, true)
@@ -223,7 +236,7 @@ try {
   console.log(JSON.stringify({
     sharedPeers: 'Host Cordis/DSH identity; same-version Schemastery',
     loader: 'all rows active, unique ACP provider, Host schema validation',
-    behavior: 'two nonadjacent commits, middle preserved, pair cleanup, replay; relay-body map, display exclusion, protected split retry; provider disposal',
+    behavior: 'two adjacent commits, independent summaries, retained constraint, pair cleanup, replay; relay-body map, display exclusion, protected split retry; provider disposal',
     compatibility, testLocalExemptionsOnly: true,
   }, null, 2))
 } finally {

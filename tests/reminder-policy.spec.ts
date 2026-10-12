@@ -152,7 +152,7 @@ describe('post-native thresholds and complete pressure notice budgets', () => {
         + `T≈${measurement.totalTokens} tokens; native automatic compaction threshold H=80000.\n`
         + 'Use context_compress to summarize completed work that no longer needs verbatim history. '
         + 'Prefer a complete multi-message work phase over isolated reports. '
-        + 'Select 1–3 non-adjacent regions using distinctive literal text endpoints; read back history if needed. '
+        + 'Select 1–3 non-overlapping regions using distinctive literal text endpoints; read back history if needed. '
         + 'Every range must stay in one section between protected boundaries; any finer range within that section is allowed. '
         + 'The map does not prescribe compression ranges. B labels and protected clues identify boundaries, not selectable endpoints; choose actual text + optional role from messages inside a section. '
         + 'Tool-span completion can reach protection and reject a range; this current map does not replace validation. '

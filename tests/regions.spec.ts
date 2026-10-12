@@ -12,7 +12,7 @@ describe('active region batches', () => {
       expect(fixture.config.maxRegions).toBe(16)
       const before = fixture.session.seq
       const regions = Array.from({ length: 17 }, () => fixture.input().regions[0]!)
-      await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, fixture.input(regions), fixture.config)).rejects.toThrow('submit 1-16 non-adjacent regions')
+      await expect(preflightRegions(fixture.ctx, fixture.agent, fixture.identity, fixture.input(regions), fixture.config)).rejects.toThrow('submit 1-16 non-overlapping regions')
       expect(fixture.session.seq).toBe(before)
     } finally { await fixture.dispose() }
   })

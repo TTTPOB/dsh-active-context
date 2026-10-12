@@ -19,13 +19,13 @@ context_compress 只操作当前调用 Session，每项包含 range 的两个 en
 
 匹配搜索当前 deriveEventMessage 的单个可作端点 text block，包含普通工具结果文本。source 归属的 acp-pressure notice/map、acp-maintenance 状态及精确 tool-call 关联的 context_compress tool/result 退出端点候选；普通 notice、其他工具结果与真正 compact-checkpoint 摘要保留。展示节点仍参与 range 内包含、工具跨度补齐、保护与冲突；不按正文猜测来源。大小写敏感 literal substring，不 trim、不做空白／Unicode 规范化、不跨 block 拼接；端点非空，空白是字面文本。reasoning、工具参数、Log、附件占位和 provider wrapper 不参与匹配。role 只限制该端点候选，不过滤区间内部。
 
-同节点内重复或多 block 命中算一个候选；不同节点重复则该 region 失败。两个端点各自扫描完整当前 Surface，不默取 first/latest 或起点后的第一个终点。缺失或歧义报告有界原文与 role 线索，供模型换词；倒序也归属于该 region。其他独立合法 region 继续。
+同节点内重复或多 block 命中算一个候选；不同节点重复则该 region 失败。两个端点各自扫描完整当前 Surface，不默取 first/latest 或起点后的第一个终点。缺失或歧义报告候选数量、有界匹配附近正文与实际 role，工具结果附其实际 call 名称及 read 的 offset／limit；元数据只用于诊断，不增加端点协议（详见 README）。模型据此换词；倒序也归属于该 region。其他独立合法 region 继续。
 
 ### 自动补齐工具对
 
 端点解析后，宿主按当前派生消息的实际 tool-call occurrence 与 tool result 配对，向外扩展区间直到闭包。选择一个结果会纳入对应 assistant；同一 assistant 中的所有调用必须纳入各自结果。调用到结果的跨度只要与选区相交就纳入闭包，因此选中的纯文本节点若夹在调用和结果之间，也会补齐整个跨度。扩展夹入的其他消息及其工具对继续求闭包。缺失对应当前调用或结果使该 region 失败，不通过 Log 复活已替换节点，不另加模型接口。
 
-扩展完成后检查整个区间的保护和跨 region 冲突，保护不可绕过。重叠或相邻的所有参与 region 都失败，不自动合并；即使其中一项因保护或对应事件缺失失败，其已知范围仍参与冲突检查。预检使用原生 balancedBefore/After 检查完整切点；无法补齐时是该 region 失败，不使其他独立合法项停止。未冲突的合法 region 继续。结果保留原 range 和 expanded，node_count 给出实际选区规模。
+扩展完成后检查整个区间的保护和跨 region 冲突，保护不可绕过。共享节点的所有参与 region 都失败，相邻但不共享节点的 region 可独立提交，不自动合并；即使其中一项因保护或对应事件缺失失败，其已知范围仍参与冲突检查。预检使用原生 balancedBefore/After 检查完整切点；无法补齐时是该 region 失败，不使其他独立合法项停止。未冲突的合法 region 继续。结果保留原 range 和 expanded，node_count 给出实际选区规模。
 
 ### 保护线索与安全重选
 
