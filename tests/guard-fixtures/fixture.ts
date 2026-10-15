@@ -24,6 +24,7 @@ export function facts(status: BatchFacts['status'] = 'batch_success'): BatchFact
       inputIndex: index, range: [{ text: `original ${index}`, role: 'assistant' as const }, { text: `original ${index}` }], expanded: false,
       status: status === 'batch_success' ? 'committed' : index === 0 ? 'committed' : 'not_attempted',
       compactionId: CompactionId(`compact-${index}`), replacementSeq: SessionSeq(10 + index),
+      ...status === 'batch_success' || index === 0 ? { source: { sessionId: SessionId('guard-hide-test'), startSeq: SessionSeq(index + 1), endSeq: SessionSeq(index + 1) } } : {},
       shadowedSeqs: [SessionSeq(index + 1)], shadowedRouteTokens: 100, shadowedHeuristicTokens: 100,
       // Native readback evidence for one observed transaction per region.
       result: {

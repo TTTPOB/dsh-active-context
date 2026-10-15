@@ -91,6 +91,8 @@ export interface RegionFact {
   compactionId?: CompactionId
   replacementSeq?: SessionSeq
   result?: CompactionResult
+  /** Actual expanded source bounds, populated only after observing the replacement. */
+  source?: { readonly sessionId: SessionId; readonly startSeq: SessionSeq; readonly endSeq: SessionSeq }
   replacementRouteTokens?: number
   replacementHeuristicTokens?: number
   error?: string
@@ -123,7 +125,7 @@ export interface HideCandidate {
   readonly resultSeq: SessionSeq
   readonly facts: {
     readonly status: BatchFacts['status']
-    readonly regions: readonly Pick<RegionFact, 'inputIndex' | 'status' | 'range' | 'expanded' | 'error'>[]
+    readonly regions: readonly Pick<RegionFact, 'inputIndex' | 'status' | 'range' | 'expanded' | 'error' | 'source'>[]
     readonly stopReason?: string
   }
 }

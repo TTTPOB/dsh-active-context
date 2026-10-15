@@ -43,7 +43,9 @@ describe('active region batches', () => {
       expect(result.isError).toBe(false)
       expect(facts.status).toBe('compressed')
       expect(Object.keys(facts).sort()).toEqual(['execution_order', 'regions', 'status'])
-      expect(Object.keys(facts.regions[0]).sort()).toEqual(['input_index', 'nodes', 'range', 'readback', 'replacement_tokens', 'shadowed_tokens', 'status'])
+      expect(Object.keys(facts.regions[0]).sort()).toEqual(['input_index', 'nodes', 'range', 'readback', 'replacement_tokens', 'shadowed_tokens', 'source_end_seq', 'source_session_id', 'source_start_seq', 'status'])
+      expect(facts.regions[0]).toMatchObject({ source_session_id: fixture.agent.id, source_start_seq: fixture.old[0], source_end_seq: fixture.old[0] })
+      expect(facts.regions[1]).toMatchObject({ source_session_id: fixture.agent.id, source_start_seq: fixture.old[2], source_end_seq: fixture.old[2] })
       expect(facts.execution_order).toEqual([1, 0])
       expect(facts.regions.map((item: { input_index: number }) => item.input_index)).toEqual([0, 1])
       expect(facts.regions.every((item: { shadowed_tokens: number; replacement_tokens: number }) => item.shadowed_tokens > item.replacement_tokens)).toBe(true)
@@ -68,6 +70,11 @@ describe('active region batches', () => {
       expect(facts.retry.regions).toEqual([0, 1])
       expect(facts.regions.every((region: { error: string }) => region.error.includes('has no match'))).toBe(true)
       expect(facts).not.toHaveProperty('final_error')
+      for (const region of facts.regions) {
+        expect(region).not.toHaveProperty('source_session_id')
+        expect(region).not.toHaveProperty('source_start_seq')
+        expect(region).not.toHaveProperty('source_end_seq')
+      }
       expect(fixture.session.seq).toBe(before)
     } finally { await fixture.dispose() }
   })
@@ -137,6 +144,9 @@ describe('active region batches', () => {
       const { result } = await fixture.submit()
       expect(result.isError).toBe(true)
       expect(JSON.stringify(result.content)).toContain('after durable replacement')
+      const content = result.content[0]!
+      if (content.type !== 'text') throw new Error('missing committed source receipt')
+      expect(JSON.parse(content.text).regions[1]).toMatchObject({ source_session_id: fixture.agent.id, source_start_seq: fixture.old[2], source_end_seq: fixture.old[2] })
       expect(fixture.session.surface.nodes).toContain(fixture.old[0])
       expect(fixture.session.surface.nodes).not.toContain(fixture.old[2])
     } finally { await fixture.dispose() }

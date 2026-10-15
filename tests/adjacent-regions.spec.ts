@@ -76,6 +76,10 @@ it.each(['complete', 'closure'] as const)('commits %s adjacent native regions se
     const record = JSON.parse(body.slice(body.indexOf('{')))
     expect(record.regions.map((region: { range: object; status: string }) => ({ range: region.range, status: region.status }))).toEqual(
       input.regions.map(region => ({ range: region.range, status: 'committed' })))
+    for (const receipt of [facts, record]) {
+      expect(receipt.regions[0]).toMatchObject({ source_session_id: f.agent.id, source_start_seq: author.seq, source_end_seq: read.seq })
+      expect(receipt.regions[1]).toMatchObject({ source_session_id: f.agent.id, source_start_seq: final.seq, source_end_seq: final.seq })
+    }
     for (const summary of summaries) expect(body).not.toContain(summary)
     expect(f.agent.session.surface.nodes).not.toContain(result.seq)
     assertCompleteToolPairs(f.agent.session.deriveMessages())

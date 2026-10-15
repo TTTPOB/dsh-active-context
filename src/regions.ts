@@ -3,7 +3,7 @@ import { isDeepStrictEqual } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
-import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionSeq, type SessionEvent, type SessionId } from '@deepseek-ai/dsh-session'
 import { CompactionId, toolPairingBalancedBefore, toolPairingBalancedAfter } from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-token-meter'
 import { assertCompleteToolPairs, expandToolPairs, RegionSelectionError, protectedNodes, sampleSurface, type ProtectionReason, type SurfaceCapture } from './protection.ts'
@@ -167,7 +167,7 @@ async function revalidate(ctx: Context, agent: Agent, identity: ExecutionIdentit
 }
 
 /** Reconcile native append evidence, including a replacement followed by a closing failure. */
-function observeCommit(fact: RegionFact, emitted: readonly SessionEvent[]): boolean {
+function observeCommit(fact: RegionFact, emitted: readonly SessionEvent[], sessionId: SessionId): boolean {
   const summary = emitted.find(event => event.type === 'compaction/summary'
     && isDeepStrictEqual(event.data.shadowedSeqs, fact.shadowedSeqs))
   if (summary?.type !== 'compaction/summary') return false
@@ -175,7 +175,10 @@ function observeCommit(fact: RegionFact, emitted: readonly SessionEvent[]): bool
   const replacement = emitted.find(event => event.type === 'user/message'
     && event.surfaceOp !== 'append'
     && event.sourceEventSeqs?.includes(summary.seq))
-  if (replacement !== undefined) fact.replacementSeq = replacement.seq
+  if (replacement !== undefined) {
+    fact.replacementSeq = replacement.seq
+    fact.source = { sessionId, startSeq: summary.data.shadowedSeqs[0]!, endSeq: summary.data.shadowedSeqs.at(-1)! }
+  }
   return replacement !== undefined
 }
 
@@ -211,6 +214,7 @@ export function renderBatchFacts(facts: BatchFacts, config: AcpConfig, finalErro
     stop_reason: facts.stopReason,
     regions: facts.regions.map(fact => ({
       input_index: fact.inputIndex, status: fact.status, range: fact.range, expanded: fact.expanded || undefined,
+      source_session_id: fact.source?.sessionId, source_start_seq: fact.source?.startSeq, source_end_seq: fact.source?.endSeq,
       nodes: fact.shadowedSeqs.length,
       shadowed_tokens: fact.shadowedRouteTokens,
       replacement_tokens: fact.replacementRouteTokens,
@@ -257,6 +261,7 @@ export async function submitRegions(
     regions: facts.regions.map(fact => ({
       ...fact, status: 'committed_with_error', compactionId: reservedId,
       replacementSeq: reservedSeq, error: 'x',
+      source: { sessionId: agent.id, startSeq: reservedSeq, endSeq: reservedSeq },
       replacementRouteTokens: Number.MAX_SAFE_INTEGER,
       replacementHeuristicTokens: Number.MAX_SAFE_INTEGER,
       result: { compactionId: reservedId, startSeq: reservedSeq, summarySeq: reservedSeq,
@@ -284,7 +289,7 @@ export async function submitRegions(
       facts.executionOrder.push(region.inputIndex)
       fact.result = await engine.compactPrewritten(region, agent, identity, exec.signal)
       fact.compactionId = fact.result.compactionId
-      if (!observeCommit(fact, emitted)) throw new Error('ACP: native result has no observable replacement; commit is unconfirmed')
+      if (!observeCommit(fact, emitted, agent.id)) throw new Error('ACP: native result has no observable replacement; commit is unconfirmed')
       fact.status = 'committed'
       const replacement = ctx.tokenMeter.measure(agent.session).nodes.find(node => node.seq === fact.replacementSeq)
       if (replacement !== undefined) {
@@ -293,7 +298,7 @@ export async function submitRegions(
       }
     } catch (error: unknown) {
       fact.error = error instanceof Error ? error.message : String(error)
-      fact.status = observeCommit(fact, emitted) ? 'committed_with_error' : 'failed'
+      fact.status = observeCommit(fact, emitted, agent.id) ? 'committed_with_error' : 'failed'
       // A durable summary without observable replacement cannot confirm the commit outcome.
       if (fact.compactionId !== undefined && fact.replacementSeq === undefined
         && (fact.result !== undefined || region.seqs.some(seq => !agent.session.surface.nodes.includes(seq)))) fact.status = 'unconfirmed'

@@ -31,7 +31,7 @@ execution-local facts 保存真实提交证据，finalizeContent 将其附到取
 
 全成功或可归因部分失败（ACP_PARTIAL）的结果完整落档、Step 已结束且至少一个 region 已确认提交时，下一 pre-step 在原生压力处理前清理精确相邻的 assistant/result 两节点。全成功和部分成功使用同一规则。其他最终工具错误、取消、unconfirmed、无成功、节点已替换或独立调用资格不满足时保留原工具对。重启或卸载丢弃内存候选，不增加持久恢复队列。
 
-维护记录包含全批原 input_index/status/range（完整 text 与可选 role）、扩展时的 expanded: true、失败或未执行原因、停止原因及原 assistant/tool-call/result Log seq；不包含 summary。记录说明仅重选失败或未执行项。摘要留在 checkpoint；原始参数和结果留在 Log，替换关系可回放。
+维护记录包含全批原 input_index/status/range（完整 text 与可选 role）、扩展时的 expanded: true、失败或未执行原因、停止原因及原 assistant/tool-call/result Log seq；不包含 summary。完整结果与维护记录中的已确认提交项均附 source_session_id/source_start_seq/source_end_seq，取已观察到 replacement 的原生 summary.shadowedSeqs 首末节点及调用会话，包含工具对闭包后的实际范围；失败、未执行、unconfirmed 不附来源范围。来源范围不是事务或工具调用位置，Log 中间可能包含不在该 Surface 区间的事件。记录说明仅重选失败或未执行项。摘要留在 checkpoint；原始参数和结果留在 Log，替换关系可回放。
 
 记录生成时按最近 request/header 匹配已启用的 pressureRoutes，使用 token-meter 当前 totalTokens 减去旧工具对的路由 tokens、加上短记录估计量，判断替换后是否仍达到 resetBelowTokens（R）。达到时在同一消息内追加继续压缩到 R 以下、恢复独立压力提醒资格的提示；即使已低于提醒线 S，处于 R ≤ T < S 时也提示。低于 R 或路由未启用则不追加，不改变独立提前提醒的 episode；每次实际提交后的工具对替换都可给出此反馈。提示计入完整 confirmation 预算，不能容纳则保留原工具对。
 

@@ -164,6 +164,14 @@ try {
   assert.deepEqual(record.regions.map(region => region.range), input.regions.map(region => region.range))
   assert.deepEqual(record.regions.map(region => region.input_index), [0, 1])
   assert.deepEqual(record.regions.map(region => region.status), ['committed', 'committed'])
+  for (const receipt of [facts, record]) for (const [index, region] of receipt.regions.entries()) {
+    assert.equal(region.source_session_id, agent.id)
+    assert.equal(region.source_start_seq, targets[index][0])
+    assert.equal(region.source_end_seq, targets[index].at(-1))
+    assert.ok(region.source_end_seq < record.log.assistant_seq)
+    assert.ok(agent.session.eventAt(region.source_start_seq))
+    assert.ok(agent.session.eventAt(region.source_end_seq))
+  }
   assert.equal(record.log.result_seq, result.seq)
   assert.equal(agent.session.eventAt(record.log.tool_call_seq).type, 'tool/call')
   assert.equal(agent.session.eventAt(record.log.assistant_seq).type, 'assistant/message')

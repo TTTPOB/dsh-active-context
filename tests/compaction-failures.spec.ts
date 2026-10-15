@@ -63,6 +63,9 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
         expect(record.regions.map((region: { range: unknown }) => region.range)).toEqual(input!.regions.map(region => region.range))
         expect(record.regions.map((region: { status: string }) => region.status)).toEqual(['failed', 'committed'])
         expect(record.regions[0].error).toContain('summary is not smaller')
+        expect(record.regions[0]).not.toHaveProperty('source_start_seq')
+        expect(record.regions[1]).toMatchObject({ source_session_id: agent.id,
+          source_start_seq: native[0]!.data.shadowedSeqs[0], source_end_seq: native[0]!.data.shadowedSeqs.at(-1) })
         expect(record.log).toMatchObject({ assistant_seq: author.seq, result_seq: result.seq })
         expect(text.text).not.toContain(input!.regions[0]!.summary)
         expect(text.text).not.toContain(input!.regions[1]!.summary)
@@ -73,6 +76,9 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
       if (content?.type !== 'text') throw new Error('Final committed-facts content missing')
       const facts = JSON.parse(content.text)
       expect(facts.regions).toHaveLength(2)
+      expect(facts.regions[1]).toMatchObject({ source_session_id: agent.id,
+        source_start_seq: native[0]!.data.shadowedSeqs[0], source_end_seq: native[0]!.data.shadowedSeqs.at(-1) })
+      if (mode !== 'post-policy-error') expect(facts.regions[0]).not.toHaveProperty('source_start_seq')
       if (mode === 'post-policy-error') {
         // The body committed every region; only the post policy failed, so the call error stays on its own axis.
         expect(result.data.message.isError).toBe(true)

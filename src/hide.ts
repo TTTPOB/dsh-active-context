@@ -37,6 +37,7 @@ function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate,
     status: candidate.facts.status === 'batch_success' ? 'compressed' : 'partial',
     regions: candidate.facts.regions.map(fact => ({
       input_index: fact.inputIndex, status: fact.status, range: fact.range, expanded: fact.expanded || undefined,
+      source_session_id: fact.source?.sessionId, source_start_seq: fact.source?.startSeq, source_end_seq: fact.source?.endSeq,
       error: fact.error,
     })),
     stop_reason: candidate.facts.stopReason,
@@ -94,7 +95,7 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState): H
       || identity.turn !== step.turn || identity.step !== step.step) return
     step.final = { exec, facts: structuredClone({
       status: facts.status,
-      regions: facts.regions.map(({ inputIndex, status, range, expanded, error }) => ({ inputIndex, status, range, expanded, ...error === undefined ? {} : { error } })),
+      regions: facts.regions.map(({ inputIndex, status, range, expanded, error, source }) => ({ inputIndex, status, range, expanded, ...error === undefined ? {} : { error }, ...source === undefined ? {} : { source } })),
       ...facts.stopReason === undefined ? {} : { stopReason: facts.stopReason },
     }) }
   })
