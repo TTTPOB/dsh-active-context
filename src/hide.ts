@@ -44,7 +44,7 @@ function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate,
     log: { assistant_seq: candidate.assistantSeq, tool_call_seq: candidate.toolCallSeq, result_seq: candidate.resultSeq },
     retry: retryable.length === 0 ? undefined : { regions: retryable, instruction: RETRY_INSTRUCTION },
   }
-  let message = createUserMessage({
+  let message: UserMessage = createUserMessage({
     content: [{ type: 'text', text: 'Context compression committed; original call/result archived. ' + JSON.stringify(record) }],
     source: { kind: 'acp-maintenance', form: 'notice', summary: boundContextSummary('Context compression status; original call and result archived.') },
   })
@@ -54,9 +54,13 @@ function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate,
     const measurement = ctx.tokenMeter.measure(session)
     const removedTokens = measurement.nodes.filter(node => node.seq === candidate.assistantSeq || node.seq === candidate.resultSeq)
       .reduce((sum, node) => sum + node.tokens, 0)
-    // Price the short replacement, not the duplicated summary arguments and full tool result.
-    const afterReplacement = Math.max(0, measurement.totalTokens - removedTokens + ctx.tokenMeter.estimateMessage(message))
-    if (afterReplacement >= route.resetBelowTokens) message = {
+    const below: UserMessage = {
+      ...message,
+      content: [...message.content, { type: 'text', text: `Compression target reached: context is now below the reset threshold R=${route.resetBelowTokens} tokens after this tool-pair replacement. No further pressure-driven compression is needed.` }],
+    }
+    // Include the completion text itself before claiming that the reset target is reached.
+    const afterReplacement = Math.max(0, measurement.totalTokens - removedTokens + ctx.tokenMeter.estimateMessage(below))
+    message = afterReplacement < route.resetBelowTokens ? below : {
       ...message,
       content: [...message.content, { type: 'text', text: `Context remains at or above the reset threshold R=${route.resetBelowTokens} tokens after this tool-pair replacement. Continue context_compress on other completed work until below R to rearm pressure reminders; do not resubmit committed regions.` }],
     }

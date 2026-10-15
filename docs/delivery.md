@@ -19,7 +19,7 @@ pnpm --config.verify-deps-before-run=false pack --pack-destination dist/release
 
 ```sh
 node tests/delivery/run.mjs \
-  --acp "$PWD/dist/release/dsh-active-context-0.4.5.tgz" \
+  --acp "$PWD/dist/release/dsh-active-context-0.4.6.tgz" \
   --query "$(node -p 'JSON.parse(require("fs").readFileSync("package.json")).devDependencies["@deepseek-ai/dsh-session-query"]')"
 ```
 
@@ -28,7 +28,7 @@ node tests/delivery/run.mjs \
 [安装入口](<../tests/delivery/run.mjs>)正规安装独立 DSH CLI；Host 根显式提供 Tools、AgentLoop、Persistence 与 Basic 需要的框架和服务 peers，以 overrides 选择 capture-capable Session／Query 及 SQLite。另建只含 ACP 的 profile，关闭自动安装 peers 和 global virtual store。它检查 profile lock 未引入 Cordis／DSH 服务副本，再运行[生产解析与行为验证](<../tests/delivery/verify.mjs>)：
 
 1. 使用公开 `createRuntimeResolution`／`PluginPackages` 与生产 `boot`／Loader 加载真实包名，检查服务 peer 的 Host 身份、同版本 Schemastery 及 schema 校验。
-2. 由脚本化模型在真实 Loop 直接提交原文端点与摘要，验证双相邻完整区间、独立摘要、保留约束和尾到头事务、下一请求工具对清理、完整与短回执的实际来源范围、最终回答和 Session replay；另一真实 Agent 验证 relay 正文保护地图、ACP 展示不作端点、保护 split 建议按原样重提成功，以及替换记录提示仍高压而不新增提前提醒。
+2. 由脚本化模型在真实 Loop 直接提交原文端点与摘要，验证双相邻完整区间、独立摘要、保留约束和尾到头事务、下一请求工具对清理、完整与短回执的实际来源范围、最终回答和 Session replay；另一真实 Agent 验证 relay 正文保护地图、ACP 展示不作端点、保护 split 建议按原样重提成功，以及替换记录明确反馈已达到回落目标或仍需压缩，而不新增提前提醒。
 3. 卸载 ACP 后检查 provider 与工具注册撤销。
 
 兼容检查按实际 manifest 报告 peer 拒绝；测试只为入口中明确列出的精确组合写入隔离 profile 的 test-local grant。真实 profile 的授权属于正式部署流程。

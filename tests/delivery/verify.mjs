@@ -19,7 +19,7 @@ const rows = [
   ['workspace'], ['session-query-sqlite', { path: ':memory:', openAt: 'never' }],
   ['agent-loop', { agents: [] }],
 ].map(([name, config]) => ({ id: name, name: '@deepseek-ai/dsh-' + name, ...(config ? { config } : {}) }))
-rows.push({ id: 'active-context', name: 'dsh-active-context', config: { basic: { auto: false }, acp: { pressureRoutes: [{ provider: 'artifact-boundary', model: 'scripted', nudgeAtTokens: 1000, resetBelowTokens: 200 }] } } })
+rows.push({ id: 'active-context', name: 'dsh-active-context', config: { basic: { auto: false }, acp: { pressureRoutes: [{ provider: 'artifact', model: 'scripted', nudgeAtTokens: 60000, resetBelowTokens: 50000 }, { provider: 'artifact-boundary', model: 'scripted', nudgeAtTokens: 1000, resetBelowTokens: 200 }] } } })
 const configPath = join(profile, 'cordis.yml')
 const consumerPath = join(profile, 'consumer.mjs')
 await writeFile(consumerPath, `export * as acp from 'dsh-active-context'
@@ -105,7 +105,12 @@ try {
         assert.ok(text.includes('KEEP MIDDLE'))
         assert.ok(!text.includes('old detail'))
         assert.ok(!text.includes('artifact-compress'))
-        assert.ok(options.messages.some(message => message.source?.kind === 'acp-maintenance'))
+        const maintenance = options.messages.find(message => message.source?.kind === 'acp-maintenance')
+        assert.ok(maintenance)
+        const feedback = maintenance.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+        assert.ok(feedback.includes('Compression target reached: context is now below the reset threshold R=50000 tokens'))
+        assert.ok(feedback.includes('No further pressure-driven compression is needed.'))
+        assert.ok(!feedback.includes('Continue context_compress on other completed work'))
         blocks = [{ type: 'text', text: 'Continued artifact task with preserved constraints.' }]
       } else throw new Error('Unexpected artifact model request')
       index++
@@ -255,7 +260,7 @@ try {
   console.log(JSON.stringify({
     sharedPeers: 'Host Cordis/DSH identity; same-version Schemastery',
     loader: 'all rows active, unique ACP provider, Host schema validation',
-    behavior: 'two adjacent commits, independent summaries, retained constraint, pair cleanup, replay; relay-body map, display exclusion, protected split retry, still-high advice in maintenance without another pressure notice; provider disposal',
+    behavior: 'two adjacent commits, independent summaries, retained constraint, pair cleanup, replay; relay-body map, display exclusion, protected split retry, explicit reset-target completion or still-high advice in maintenance without another pressure notice; provider disposal',
     compatibility, testLocalExemptionsOnly: true,
   }, null, 2))
 } finally {
