@@ -99,7 +99,7 @@ it('real Loop submits tool-role split suggestions unchanged after their own retu
       const result = request.messages.find(message => message.role === 'tool' && message.toolCallId === 'split-crossing')
       if (result === undefined) throw new Error('Missing returned diagnostic')
       const facts = JSON.parse(body(result))
-      expect(facts.status).toBe('all_failed')
+      expect(facts.status).toBe('failed')
       const help = JSON.parse(facts.regions[0].error.match(/Safe split ranges .*?: (\{.*\})\. Each range/)[1])
       expect(help.ranges).toHaveLength(2)
       expect(help.ranges.every((range: TextEndpoint[]) => range.at(-1)?.role === 'tool')).toBe(true)
@@ -130,7 +130,7 @@ it('real Loop submits tool-role split suggestions unchanged after their own retu
     const result = f.agent.session.snapshotEvents().find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'split-retry')!
     if (result.type !== 'tool/result') throw new Error('Missing retry result')
     const facts = JSON.parse(body(result.data.message))
-    expect(facts.status).toBe('batch_success')
+    expect(facts.status).toBe('compressed')
     expect(facts.regions.map((item: { range: TextEndpoint[] }) => item.range)).toEqual(suggested.map(item => item.range))
     expect(f.agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(2)
     expect(f.adapter.requests).toHaveLength(7)

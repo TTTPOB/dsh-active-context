@@ -22,9 +22,15 @@ export function facts(status: BatchFacts['status'] = 'batch_success'): BatchFact
     status, executionOrder: [1, 0],
     regions: [0, 1].map(index => ({
       inputIndex: index, range: [{ text: `original ${index}`, role: 'assistant' as const }, { text: `original ${index}` }], expanded: false,
-      status: status === 'batch_success' || index === 0 ? 'committed' : 'not_attempted',
+      status: status === 'batch_success' ? 'committed' : index === 0 ? 'committed' : 'not_attempted',
       compactionId: CompactionId(`compact-${index}`), replacementSeq: SessionSeq(10 + index),
       shadowedSeqs: [SessionSeq(index + 1)], shadowedRouteTokens: 100, shadowedHeuristicTokens: 100,
+      // Native readback evidence for one observed transaction per region.
+      result: {
+        compactionId: CompactionId(`compact-${index}`), startSeq: SessionSeq(index + 1), summarySeq: SessionSeq(10 + index),
+        endSeq: SessionSeq(index + 1), summary: [], shadowedRange: { start: SessionSeq(index + 1), end: SessionSeq(index + 1) },
+        shadowedSeqs: [SessionSeq(index + 1)], shadowedTokenCount: 100,
+      },
     })),
   }
 }

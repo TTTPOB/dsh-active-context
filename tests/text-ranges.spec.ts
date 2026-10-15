@@ -126,7 +126,7 @@ it('rejects wrong endpoint counts and shared nodes before native writes', async 
       [region({ text: 'completed 1' }, { text: 'completed 2' }), region({ text: 'completed 2' }, { text: 'completed 3' })],
     ]) {
       const result = await f.submit(f.input(regions))
-      expect(result.result.isError || result.facts.status === 'all_failed').toBe(true)
+      expect(result.result.isError || result.facts.status === 'failed').toBe(true)
       expect(f.session.snapshotEvents()).toEqual(before)
     }
   } finally { await f.dispose() }

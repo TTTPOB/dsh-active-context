@@ -9,7 +9,7 @@ import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deep
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { AcpConfigSchema } from '../src/config.ts'
 import { ActiveCompactionEngine } from '../src/provider.ts'
-import { submitRegions } from '../src/regions.ts'
+import { renderBatchFacts, submitRegions } from '../src/regions.ts'
 import type { AcpState, CompressInput, ExecutionIdentity, RegionInput } from '../src/types.ts'
 
 class SummaryAdapter extends LlmAdapter {
@@ -67,7 +67,12 @@ export async function providerFixture() {
   let submittedBatch = input()
   let submittedIdentity = identity
   let rendered = ''
-  ctx.tools.register(defineTool({ name: 'fixture-submit', description: 'Submit a test-only active batch', parameters: {}, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, async execute(_args, exec) {
+  ctx.tools.register(defineTool({ name: 'fixture-submit', description: 'Submit a test-only active batch', parameters: {}, output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, finalizeContent(exec, result) {
+    const facts = state.facts.get(exec)
+    if (facts === undefined) return undefined
+    rendered = renderBatchFacts(facts, config, result.isError ? result : undefined)
+    return [{ type: 'text', text: rendered }]
+  }, async execute(_args, exec) {
     rendered = await submitRegions(ctx, engine, exec, submittedIdentity, submittedBatch, config, state)
     return rendered
   } }))

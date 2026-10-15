@@ -28,9 +28,12 @@ describe('active region batches', () => {
       content: [{ type: 'text', text: 'request cancelled' }, { type: 'text', text: 'original native details' }],
     })
     const output = JSON.parse(rendered)
-    expect(output.cleanup).toBe('retained')
+    expect(output.call_error).toBe('aborted')
     expect(output.final_error).toEqual({ name: 'AbortError', code: 'ABORTED', message: 'cancelled after replacement', content: 'request cancelled\noriginal native details' })
-    expect(output.regions[0]).toMatchObject({ status: 'committed_with_error', compaction_id: 'native-id', replacement_seq: 10, route_token_reduction: 150, route_reduction_ratio: 0.75 })
+    expect(output.regions[0]).toMatchObject({ status: 'committed_with_error', nodes: 1, shadowed_tokens: 200, replacement_tokens: 50 })
+    // No readback without an observed native transaction, and no retry offer when nothing needs another attempt.
+    expect(output.regions[0]).not.toHaveProperty('readback')
+    expect(output).not.toHaveProperty('retry')
   })
 
   it('commits two non-adjacent regions tail to head and retains intervening content', async () => {
@@ -38,14 +41,34 @@ describe('active region batches', () => {
     try {
       const { result, facts } = await fixture.submit()
       expect(result.isError).toBe(false)
-      expect(facts.status).toBe('batch_success')
+      expect(facts.status).toBe('compressed')
+      expect(Object.keys(facts).sort()).toEqual(['execution_order', 'regions', 'status'])
+      expect(Object.keys(facts.regions[0]).sort()).toEqual(['input_index', 'nodes', 'range', 'readback', 'replacement_tokens', 'shadowed_tokens', 'status'])
       expect(facts.execution_order).toEqual([1, 0])
       expect(facts.regions.map((item: { input_index: number }) => item.input_index)).toEqual([0, 1])
-      expect(facts.regions.every((item: { route_token_reduction: number }) => item.route_token_reduction > 0)).toBe(true)
+      expect(facts.regions.every((item: { shadowed_tokens: number; replacement_tokens: number }) => item.shadowed_tokens > item.replacement_tokens)).toBe(true)
       expect(fixture.session.surface.nodes).toContain(fixture.old[1])
       expect(fixture.session.surface.nodes).not.toContain(fixture.old[0])
       expect(fixture.session.surface.nodes).not.toContain(fixture.old[2])
       expect(fixture.adapter.calls).toBe(0)
+    } finally { await fixture.dispose() }
+  })
+
+  it('returns ACP_ALL_FAILED with retry indices and no writes when every endpoint is missing', async () => {
+    const fixture = await providerFixture()
+    try {
+      const before = fixture.session.seq
+      const { result, facts } = await fixture.submit(fixture.input([
+        { range: [{ text: 'absent one' }, { text: 'absent one' }], summary: 'Unused.' },
+        { range: [{ text: 'absent two' }, { text: 'absent two' }], summary: 'Unused.' },
+      ]))
+      expect(result.isError).toBe(true)
+      expect(result.error?.info?.code).toBe('ACP_ALL_FAILED')
+      expect(facts.status).toBe('failed')
+      expect(facts.retry.regions).toEqual([0, 1])
+      expect(facts.regions.every((region: { error: string }) => region.error.includes('has no match'))).toBe(true)
+      expect(facts).not.toHaveProperty('final_error')
+      expect(fixture.session.seq).toBe(before)
     } finally { await fixture.dispose() }
   })
 

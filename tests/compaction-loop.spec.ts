@@ -62,10 +62,9 @@ it('recovers from mixed task text by directly retrying literal regions in a sepa
 
 interface CommittedRegion {
   input_index: number
-  compaction_id: string
-  replacement_seq: SessionSeq
-  readback: { summary_seq: SessionSeq }
-  route_token_reduction: number
+  readback: { start_seq: SessionSeq; summary_seq: SessionSeq; end_seq: SessionSeq }
+  shadowed_tokens: number
+  replacement_tokens: number
 }
 
 it('commits two nonadjacent native regions, hides only their finalized successful pair, then continues real tool work and replays', async () => {
@@ -134,25 +133,26 @@ it('commits two nonadjacent native regions, hides only their finalized successfu
     const text = result.data.message.content.find(block => block.type === 'text')
     if (text?.type !== 'text') throw new Error('Final compression content missing')
     const facts: { status: string; execution_order: number[]; regions: CommittedRegion[] } = JSON.parse(text.text)
-    expect(facts.status).toBe('batch_success')
+    expect(facts.status).toBe('compressed')
     expect(facts.execution_order).toEqual([1, 0])
     expect(facts.regions.map(region => region.input_index)).toEqual([0, 1])
     const assertAssociations = (regions: CommittedRegion[]) => {
       for (const region of regions) {
         const target = originalTargets[region.input_index]!
         const summary = input!.regions[region.input_index]!.summary
-        const transaction = native.find(event => event.data.compactionId === region.compaction_id)
+        const transaction = native.find(event => event.seq === region.readback.summary_seq)
         expect(transaction).toBeDefined()
-        expect(region.readback.summary_seq).toBe(transaction!.seq)
         expect(transaction!.data.shadowedSeqs).toEqual(target)
         expect(transaction!.data.summary).toEqual([{ type: 'text', text: summary }])
-        const replacement = agent.session.eventAt(region.replacement_seq)
+        // The readback seqs alone locate the replacement node that owns the summary.
+        const replacement = events.find(event => event.type === 'user/message'
+          && event.surfaceOp !== 'append' && event.sourceEventSeqs?.includes(region.readback.summary_seq))
         expect(replacement).toMatchObject({
           type: 'user/message',
           surfaceOp: { op: 'replace', startSeq: target[0], endSeq: target.at(-1) },
           sourceEventSeqs: expect.arrayContaining([transaction!.seq, ...target]),
         })
-        expect(agent.session.surface.nodes).toContain(region.replacement_seq)
+        expect(agent.session.surface.nodes).toContain(replacement!.seq)
         const message = agent.session.deriveEventMessage(replacement!)
         expect(message?.content).toContainEqual(expect.objectContaining({ type: 'text', text: expect.stringContaining(summary) }))
       }
@@ -165,7 +165,7 @@ it('commits two nonadjacent native regions, hides only their finalized successfu
     expect(() => assertAssociations(facts.regions.map((region, index) => ({
       ...region, readback: facts.regions[1 - index]!.readback,
     })))).toThrow()
-    expect(facts.regions.every(region => region.route_token_reduction > 0)).toBe(true)
+    expect(facts.regions.every(region => region.shadowed_tokens > region.replacement_tokens)).toBe(true)
     const maintenance = events.filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')
     expect(maintenance).toHaveLength(1)
     expect(maintenance[0]!.seq).toBeGreaterThan(result.seq)

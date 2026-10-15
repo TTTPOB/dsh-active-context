@@ -28,8 +28,8 @@ it('distinguishes actual same-file read candidates by their own call ranges and 
       const result = request.messages.find(message => message.role === 'tool' && message.toolCallId === 'ambiguous-read-compress')
       if (result?.content[0]?.type !== 'text') throw new Error('Missing ambiguous result')
       const facts = JSON.parse(result.content[0].text)
-      expect(facts.status).toBe('all_failed')
-      expect(facts.regions[0]).toMatchObject({ input_index: 0, status: 'failed', range: input.regions[0]!.range, expanded: false })
+      expect(facts.status).toBe('failed')
+      expect(facts.regions[0]).toMatchObject({ input_index: 0, status: 'failed', range: input.regions[0]!.range })
       const error = facts.regions[0].error
       expect(error).toContain('endpoint 0 is ambiguous')
       const detail = diagnostics(error)
@@ -90,7 +90,7 @@ it('bounds candidate count and body clues, falls back to actual role without an 
     }
     const rendered = renderBatchFacts({ status: 'all_failed', executionOrder: [], regions: facts.map(fact => ({ ...fact, error: fact.error!.repeat(20) })) }, { ...f.config, resultMaxBytes: 2000 })
     expect(Buffer.byteLength(rendered)).toBeLessThanOrEqual(2000)
-    expect(JSON.parse(rendered).regions[0]).toMatchObject({ input_index: 0, status: 'failed', range: input.regions[0]!.range, expanded: false, node_count: 0 })
+    expect(JSON.parse(rendered).regions[0]).toMatchObject({ input_index: 0, status: 'failed', range: input.regions[0]!.range, nodes: 0 })
     expect(rendered).not.toContain('PRIVATE_SUMMARY_NOT_IN_DIAGNOSTICS')
   } finally { await f.dispose() }
 })

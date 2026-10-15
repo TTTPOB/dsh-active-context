@@ -64,11 +64,11 @@ it.each(['complete', 'closure'] as const)('commits %s adjacent native regions se
     if (result?.type !== 'tool/result' || result.data.message.content[0]?.type !== 'text') throw new Error('Missing compression result')
     expect(result.data.message.isError).toBe(false)
     const facts = JSON.parse(result.data.message.content[0].text)
-    expect(facts.status).toBe('batch_success')
+    expect(facts.status).toBe('compressed')
     expect(facts.execution_order).toEqual([1, 0])
     expect(facts.regions.map((fact: { range: object; status: string; expanded: boolean }) => ({ range: fact.range, status: fact.status, expanded: fact.expanded }))).toEqual([
-      { range: input.regions[0]!.range, status: 'committed', expanded: mode === 'closure' },
-      { range: input.regions[1]!.range, status: 'committed', expanded: false },
+      { range: input.regions[0]!.range, status: 'committed', expanded: mode === 'closure' ? true : undefined },
+      { range: input.regions[1]!.range, status: 'committed' },
     ])
     const maintenance = events.find(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')
     if (maintenance?.type !== 'user/message' || maintenance.data.content[0]?.type !== 'text') throw new Error('Missing cleanup record')
@@ -96,10 +96,10 @@ it('rejects both disjoint original nodes when native tool closure makes their re
       const result = request.messages.find(message => message.role === 'tool' && message.toolCallId === 'shared-compress')
       if (result?.content[0]?.type !== 'text') throw new Error('Missing conflict result')
       const facts = JSON.parse(result.content[0].text)
-      expect(facts.status).toBe('all_failed')
+      expect(facts.status).toBe('failed')
       expect(facts.execution_order).toEqual([])
-      expect(facts.regions.map((fact: { status: string; expanded: boolean; node_count: number }) => ({ status: fact.status, expanded: fact.expanded, node_count: fact.node_count })))
-        .toEqual([{ status: 'failed', expanded: true, node_count: 2 }, { status: 'failed', expanded: true, node_count: 2 }])
+      expect(facts.regions.map((fact: { status: string; expanded: boolean; nodes: number }) => ({ status: fact.status, expanded: fact.expanded, nodes: fact.nodes })))
+        .toEqual([{ status: 'failed', expanded: true, nodes: 2 }, { status: 'failed', expanded: true, nodes: 2 }])
       for (const [index, fact] of facts.regions.entries()) {
         expect(fact.range).toEqual(input.regions[index]!.range)
         expect(fact.error).toBe('ACP: regions 0 and 1 have identical ranges after tool-pair expansion (shared node_count: 2); select them again')

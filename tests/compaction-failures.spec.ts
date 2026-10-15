@@ -73,12 +73,12 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
       if (content?.type !== 'text') throw new Error('Final committed-facts content missing')
       const facts = JSON.parse(content.text)
       expect(facts.regions).toHaveLength(2)
-      expect(facts.regions[1].compaction_id).toBeDefined()
-      expect(facts.regions[1].replacement_seq).toBeDefined()
-      expect(facts.cleanup).toBe(mode === 'partial-no-shrink' ? 'pending_final_settlement' : 'retained')
       if (mode === 'post-policy-error') {
+        // The body committed every region; only the post policy failed, so the call error stays on its own axis.
         expect(result.data.message.isError).toBe(true)
-        expect(facts.status).toBe('batch_success')
+        expect(facts.status).toBe('partial')
+        expect(facts.call_error).toBe('error')
+        expect(facts.regions[1].readback).toBeDefined()
         expect(facts.regions.every((region: { status: string }) => region.status === 'committed')).toBe(true)
         expect(content.text).toContain('INDEPENDENT POST POLICY DETAIL')
         expect(adapter.requests).toHaveLength(5)
@@ -90,6 +90,9 @@ it.each(['partial-no-shrink', 'cancel-after-commit', 'post-policy-error'] as con
         expect(facts.regions[0].status).toBe('failed')
         expect(adapter.requests).toHaveLength(4)
       } else {
+        expect(result.data.message.isError).toBe(true)
+        expect(result.data.error?.code).toBe('ACP_PARTIAL')
+        expect(facts).not.toHaveProperty('call_error')
         expect(facts.status).toBe('partial')
         expect(facts.regions[0].status).toBe('failed')
         expect(facts.execution_order).toEqual([1, 0])

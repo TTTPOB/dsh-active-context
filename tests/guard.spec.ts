@@ -17,7 +17,8 @@ describe('independent compression admission', () => {
     expect(pair.result.isError).toBe(false)
     expect(f.executions).toHaveLength(1)
     expect(f.state.identities.get(f.executions[0]!)).toBeUndefined()
-    expect(JSON.parse(pair.result.content[0]!.type === 'text' ? pair.result.content[0]!.text : '')).toMatchObject({ status: 'batch_success', cleanup: 'pending_final_settlement' })
+    expect(JSON.parse(pair.result.content[0]!.type === 'text' ? pair.result.content[0]!.text : '')).toMatchObject({ status: 'compressed', execution_order: [1, 0] })
+    expect(JSON.parse(pair.result.content[0]!.type === 'text' ? pair.result.content[0]!.text : '')).not.toHaveProperty('retry')
     // Inspect the captured identity while the real body runs, not a made-up provider default.
     let route: unknown
     const second = await create({ body(exec, state) { route = state.identities.get(exec) }, cleanup: false })
@@ -99,7 +100,8 @@ describe('last-mile committed-fact diagnostics', () => {
     expect(result.data.error?.code).toBe('ABORTED')
     const content = result.data.message.content[0]!
     expect(content.type).toBe('text')
-    expect(JSON.parse(content.type === 'text' ? content.text : '')).toMatchObject({ status: 'batch_success', cleanup: 'retained', final_error: { code: 'ABORTED' }, regions: [expect.objectContaining({ status: 'committed', compaction_id: 'compact-0' }), expect.objectContaining({ status: 'committed', compaction_id: 'compact-1' })] })
+    // Cancellation cannot render as complete success; all committed evidence remains.
+    expect(JSON.parse(content.type === 'text' ? content.text : '')).toMatchObject({ status: 'partial', call_error: 'aborted', final_error: { code: 'ABORTED' }, regions: [expect.objectContaining({ status: 'committed', readback: expect.objectContaining({ start_seq: 1 }) }), expect.objectContaining({ status: 'committed', readback: expect.objectContaining({ start_seq: 2 }) })] })
     expect(f.state.hideCandidates.has(f.agent)).toBe(false)
   })
 
@@ -109,7 +111,9 @@ describe('last-mile committed-fact diagnostics', () => {
     await f.run()
     const result = results(f)[0]!
     expect(result.data.message.isError).toBe(true)
-    expect(result.data.message.content).toEqual([expect.objectContaining({ type: 'text', text: expect.stringContaining('compact-0') })])
+    const facts = JSON.parse(result.data.message.content[0]!.type === 'text' ? result.data.message.content[0]!.text : '')
+    // Preserve every commit while reporting the policy failure.
+    expect(facts).toMatchObject({ status: 'partial', call_error: 'error', regions: [expect.objectContaining({ status: 'committed', readback: expect.objectContaining({ start_seq: 1 }) }), expect.objectContaining({ status: 'committed', readback: expect.objectContaining({ start_seq: 2 }) })] })
     const block = result.data.message.content[0]!
     expect(JSON.parse(block.type === 'text' ? block.text : '').final_error.content).toContain('specific corrective detail from post hook')
     expect(f.state.hideCandidates.has(f.agent)).toBe(false)
@@ -128,8 +132,8 @@ describe('last-mile committed-fact diagnostics', () => {
     expect(pair.result.isError).toBe(true)
     const block = pair.result.content[0]!
     expect(JSON.parse(block.type === 'text' ? block.text : '')).toMatchObject({
-      cleanup: 'retained', final_error: { message: 'around-dispatch close failed' },
-      regions: [expect.objectContaining({ compaction_id: 'compact-0' }), expect.objectContaining({ compaction_id: 'compact-1' })],
+      status: 'partial', call_error: 'error', final_error: { message: 'around-dispatch close failed' },
+      regions: [expect.objectContaining({ status: 'committed', readback: expect.objectContaining({ start_seq: 1 }) }), expect.objectContaining({ status: 'committed', readback: expect.objectContaining({ start_seq: 2 }) })],
     })
     expect(postCalls).toBe(0)
     expect(f.state.hideCandidates.has(f.agent)).toBe(false)
@@ -151,6 +155,6 @@ describe('last-mile committed-fact diagnostics', () => {
     const text = block.type === 'text' ? block.text : ''
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(2048)
     expect(() => JSON.parse(text)).not.toThrow()
-    expect(JSON.parse(text)).toMatchObject({ status: 'partial', regions: [expect.objectContaining({ compaction_id: 'compact-0', status: 'committed' }), expect.objectContaining({ status: 'not_attempted' })] })
+    expect(JSON.parse(text)).toMatchObject({ status: 'partial', regions: [expect.objectContaining({ status: 'committed' }), expect.objectContaining({ status: 'not_attempted' })] })
   })
 })

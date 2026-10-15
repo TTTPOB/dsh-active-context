@@ -107,6 +107,13 @@ export interface BatchFacts {
   stopReason?: string
 }
 
+/**
+ * Model-facing batch status. Names the region outcome only: `compressed` means every
+ * region committed and the call succeeded, `partial` that commits remain alongside
+ * failures, and `failed` that none committed. Tool-level faults retain their details.
+ */
+export type RenderedStatus = 'compressed' | 'partial' | 'failed'
+
 /** Exact adjacent assistant/result pair eligible for pre-step maintenance. */
 export interface HideCandidate {
   readonly identity: ExecutionIdentity

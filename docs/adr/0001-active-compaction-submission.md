@@ -23,17 +23,17 @@
 
 执行前重验固定目标的存活、顺序、事件、正文与保护，不以原文本重新匹配另一个节点。可归因的选区错误与原生摘要不缩水继续后面的独立项。原生缩水错误以已关闭失败事务及其固定错误前缀识别；Basic 没有公开该错误类型，因此不将任意 Error 视为可恢复失败。取消、未知宿主／原生故障或无法确认的提交停止余项；未知故障仍成为最终工具错误，不静默降级为正常结果。
 
-结果按原 input_index 列出 range、expanded、status、计量和原生回读 seq，另列 execution_order。failed 为该项验证或执行失败，not_attempted 为停止后未执行项；committed 为已确认 replacement。原生结束失败但 replacement 已确认时保留 committed_with_error；无法确认时标 unconfirmed。成功不回滚。只重新选择 failed/not_attempted；成功项的旧端点不保证再匹配。
+结果按原 input_index 列出 range、仅扩展时出现的 expanded: true、status、计量和原生回读 seq，另列 execution_order。批级 `status`：`compressed` 为全部提交且调用成功，`partial` 为提交与失败并存（包括提交后工具层失败），`failed` 为无一提交。部分失败／全部失败分别抛出 `ACP_PARTIAL`／`ACP_ALL_FAILED`，让工具层 isError 与正文一致；工具调用自身的取消或故障单列 `call_error` 与 `final_error`，因此失败不会被报成成功。逐项 `status`：failed 为该项验证或执行失败，not_attempted 为停止后未执行项；committed 为已确认 replacement。原生结束失败但 replacement 已确认时保留 committed_with_error；无法确认时标 unconfirmed。成功不回滚。存在 failed/not_attempted 项时才给 `retry.regions`，只重新选择这些项；成功项的旧端点不保证再匹配。
 
 ### 最终结算与工具对清理
 
 execution-local facts 保存真实提交证据，finalizeContent 将其附到取消或后置策略错误中，保留最终 isError 和 ABORTED 等原因。只有观察到原生 replacement 才确认提交，不能仅凭返回对象伪造成功。
 
-最终正常结果完整落档、Step 已结束且至少一个 region 已确认提交时，下一 pre-step 在原生压力处理前清理精确相邻的 assistant/result 两节点。全成功和部分成功使用同一规则。最终错误、取消、unconfirmed、无成功、节点已替换或独立调用资格不满足时保留原工具对。重启或卸载丢弃内存候选，不增加持久恢复队列。
+全成功或可归因部分失败（ACP_PARTIAL）的结果完整落档、Step 已结束且至少一个 region 已确认提交时，下一 pre-step 在原生压力处理前清理精确相邻的 assistant/result 两节点。全成功和部分成功使用同一规则。其他最终工具错误、取消、unconfirmed、无成功、节点已替换或独立调用资格不满足时保留原工具对。重启或卸载丢弃内存候选，不增加持久恢复队列。
 
-维护记录包含全批原 input_index/status/range（完整 text 与可选 role）、expanded、失败或未执行原因、停止原因及原 assistant/tool-call/result Log seq；不包含 summary。记录说明仅重选失败或未执行项。摘要留在 checkpoint；原始参数和结果留在 Log，替换关系可回放。
+维护记录包含全批原 input_index/status/range（完整 text 与可选 role）、扩展时的 expanded: true、失败或未执行原因、停止原因及原 assistant/tool-call/result Log seq；不包含 summary。记录说明仅重选失败或未执行项。摘要留在 checkpoint；原始参数和结果留在 Log，替换关系可回放。
 
-确认预算针对完整消息（含包装）计量，默认 1200 tokens/8000 UTF-8 bytes，可配置。完整记录不满足任一预算时保留原工具对；不裁短真实端点、不舍弃逐项原因，也不降为只有 seq 的记录。该预算覆盖普通短锚点批次，不承诺容纳所有合法长参数。完整工具结果也受 resultMaxBytes 约束，首次写入前预留完整原 range 和事务标识所需空间；无法容纳则在提交前报预算错误。
+确认预算针对完整消息（含包装）计量，默认 1200 tokens/8000 UTF-8 bytes，可配置。完整记录不满足任一预算时保留原工具对；不裁短真实端点、不舍弃逐项原因，也不降为只有 seq 的记录。该预算覆盖普通短锚点批次，不承诺容纳所有合法长参数。完整工具结果也受 resultMaxBytes 约束，首次写入前预留完整原 range 和回读 seq所需空间；无法容纳则在提交前报预算错误。
 
 清理连续同步追加 compaction/prune 与 user-role replacement。prune 只在紧邻 replacement 消费后扣减计量；第二次 append 失败会抛出宿主错误、保留原节点，孤立 prune 不影响回放计量。
 

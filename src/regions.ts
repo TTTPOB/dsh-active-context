@@ -2,7 +2,7 @@
 import { isDeepStrictEqual } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { CompactionId, toolPairingBalancedBefore, toolPairingBalancedAfter } from '@deepseek-ai/dsh-compaction'
 import type {} from '@deepseek-ai/dsh-token-meter'
@@ -10,7 +10,7 @@ import { assertCompleteToolPairs, expandToolPairs, RegionSelectionError, protect
 import { literalClue, safeSplitRanges } from './boundaries.ts'
 import { endpointClues, endpointMatches } from './endpoints.ts'
 import type { ActiveCompactionEngine } from './provider.ts'
-import type { AcpConfig, AcpState, BatchFacts, CompressInput, ExecutionIdentity, RegionFact, ResolvedRegion, TextEndpoint } from './types.ts'
+import type { AcpConfig, AcpState, BatchFacts, CompressInput, ExecutionIdentity, RegionFact, RenderedStatus, ResolvedRegion, TextEndpoint } from './types.ts'
 import type { ToolExecutionFailure, ToolRunContext } from '@deepseek-ai/dsh-tools'
 
 /** Reject malformed author budgets before any native compaction transaction starts. */
@@ -179,38 +179,48 @@ function observeCommit(fact: RegionFact, emitted: readonly SessionEvent[]): bool
   return replacement !== undefined
 }
 
-/** Complete model-facing facts omit duplicated summary bodies and bound diagnostic text. */
+/** Expected region failures remain tool errors without losing successful commits. */
+export function isBatchOutcomeError(code: string | undefined): boolean {
+  return code === 'ACP_PARTIAL' || code === 'ACP_ALL_FAILED'
+}
+
+/** A failed call never reports complete success, even after every region committed. */
+function renderedStatus(facts: BatchFacts, finalError?: Readonly<ToolExecutionFailure>): RenderedStatus {
+  if (facts.status === 'batch_success') return finalError === undefined ? 'compressed' : 'partial'
+  return facts.status === 'partial' ? 'partial' : 'failed'
+}
+
+/** Sole retry wording; shared with the archived-pair status record. */
+export const RETRY_INSTRUCTION = 'Reselect only failed/not_attempted regions using current text; committed original endpoints may no longer match.'
+
+/** Model-facing results preserve original ranges and bounded errors without duplicating summaries. */
 export function renderBatchFacts(facts: BatchFacts, config: AcpConfig, finalError?: Readonly<ToolExecutionFailure>): string {
+  if (isBatchOutcomeError(finalError?.error.info?.code)) finalError = undefined
+  const retryable = facts.regions.filter(fact => fact.status === 'failed' || fact.status === 'not_attempted').map(fact => fact.inputIndex)
   const output = {
-    status: facts.status,
-    cleanup: finalError !== undefined || facts.regions.some(fact => fact.status === 'unconfirmed') ? 'retained'
-      : facts.regions.some(fact => fact.status === 'committed' || fact.status === 'committed_with_error') ? 'pending_final_settlement' : 'not_eligible',
-    retry: 'Reselect only failed/not_attempted regions using current text; committed original endpoints may no longer match.',
+    status: renderedStatus(facts, finalError),
+    // A tool-level failure never hides in the batch status; it stays visible on its own axis.
+    call_error: finalError === undefined ? undefined
+      : finalError.error.info?.code === 'ABORTED' || finalError.error.info?.name === 'AbortError' ? 'aborted' : 'error',
     final_error: finalError === undefined ? undefined : {
       name: finalError.error.info?.name,
       code: finalError.error.info?.code,
       message: finalError.error.message,
       content: finalError.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n'),
     },
-    execution_order: facts.executionOrder,
     stop_reason: facts.stopReason,
     regions: facts.regions.map(fact => ({
-      input_index: fact.inputIndex, status: fact.status, range: fact.range, expanded: fact.expanded,
-      compaction_id: fact.compactionId, replacement_seq: fact.replacementSeq,
-      node_count: fact.shadowedSeqs.length,
-      shadowed_route_tokens: fact.shadowedRouteTokens,
-      shadowed_heuristic_tokens: fact.shadowedHeuristicTokens,
-      replacement_route_tokens: fact.replacementRouteTokens,
-      replacement_heuristic_tokens: fact.replacementHeuristicTokens,
-      native_shadowed_heuristic_tokens: fact.result?.shadowedTokenCount,
-      route_token_reduction: fact.replacementRouteTokens === undefined ? undefined : fact.shadowedRouteTokens - fact.replacementRouteTokens,
-      route_reduction_ratio: fact.replacementRouteTokens === undefined || fact.shadowedRouteTokens === 0 ? undefined : 1 - fact.replacementRouteTokens / fact.shadowedRouteTokens,
-      metering_basis: 'token-meter; selected prices at batch preflight; replacement prices after native commit',
+      input_index: fact.inputIndex, status: fact.status, range: fact.range, expanded: fact.expanded || undefined,
+      nodes: fact.shadowedSeqs.length,
+      shadowed_tokens: fact.shadowedRouteTokens,
+      replacement_tokens: fact.replacementRouteTokens,
       readback: fact.result === undefined ? undefined : {
         start_seq: fact.result.startSeq, summary_seq: fact.result.summarySeq, end_seq: fact.result.endSeq,
       },
       error: fact.error,
     })),
+    retry: retryable.length === 0 ? undefined : { regions: retryable, instruction: RETRY_INSTRUCTION },
+    execution_order: facts.executionOrder,
   }
   let rendered = JSON.stringify(output)
   while (Buffer.byteLength(rendered, 'utf8') > config.resultMaxBytes) {
@@ -306,5 +316,9 @@ export async function submitRegions(
   }
   facts.status = facts.regions.every(fact => fact.status === 'committed') ? 'batch_success'
     : facts.regions.some(fact => fact.status === 'committed' || fact.status === 'committed_with_error') ? 'partial' : 'all_failed'
+  if (facts.status !== 'batch_success') throw new HarnessError(
+    facts.status === 'partial' ? 'Some regions failed; committed regions are preserved.' : 'No regions were compressed.',
+    facts.status === 'partial' ? 'ACP_PARTIAL' : 'ACP_ALL_FAILED',
+  )
   return renderBatchFacts(facts, config)
 }

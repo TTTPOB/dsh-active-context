@@ -5,6 +5,7 @@ import { boundContextSummary, createUserMessage, type UserMessage } from '@deeps
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { AcpConfig, AcpState, HideCandidate, HideHooks } from './types.ts'
+import { isBatchOutcomeError, RETRY_INSTRUCTION } from './regions.ts'
 
 interface ObservedStep {
   readonly turn: number
@@ -31,15 +32,16 @@ declare module '@deepseek-ai/dsh-llm' {
 }
 
 function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate): UserMessage | undefined {
+  const retryable = candidate.facts.regions.filter(fact => fact.status === 'failed' || fact.status === 'not_attempted').map(fact => fact.inputIndex)
   const record = {
-    status: candidate.facts.status,
+    status: candidate.facts.status === 'batch_success' ? 'compressed' : 'partial',
     regions: candidate.facts.regions.map(fact => ({
-      input_index: fact.inputIndex, status: fact.status, range: fact.range, expanded: fact.expanded,
+      input_index: fact.inputIndex, status: fact.status, range: fact.range, expanded: fact.expanded || undefined,
       error: fact.error,
     })),
     stop_reason: candidate.facts.stopReason,
     log: { assistant_seq: candidate.assistantSeq, tool_call_seq: candidate.toolCallSeq, result_seq: candidate.resultSeq },
-    retry: 'Reselect only failed/not_attempted regions using current text; committed original endpoints may no longer match.',
+    retry: retryable.length === 0 ? undefined : { regions: retryable, instruction: RETRY_INSTRUCTION },
   }
   const message = createUserMessage({
     content: [{ type: 'text', text: 'Context compression committed; original call/result archived. ' + JSON.stringify(record) }],
@@ -73,7 +75,7 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState): H
     const identity = state.identities.get(exec)
     const facts = state.facts.get(exec)
     const step = steps.get(exec.agent.session)
-    if (step === undefined || identity === undefined || result.isError || exec.signal.aborted
+    if (step === undefined || identity === undefined || (result.isError && !isBatchOutcomeError(result.error.info?.code)) || exec.signal.aborted
       || facts === undefined || facts.regions.some(region => region.status === 'unconfirmed')
       || !facts.regions.some(region => (region.status === 'committed' || region.status === 'committed_with_error') && region.compactionId !== undefined)
       || identity.turn !== step.turn || identity.step !== step.step) return
@@ -110,7 +112,8 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState): H
       const agent = final.exec.agent
       const identity = state.identities.get(final.exec)
       if (agent === undefined || identity === undefined || identity.sessionId !== session.id
-        || event.surfaceOp !== 'append' || event.data.message.isError === true || event.data.error !== undefined
+        || event.surfaceOp !== 'append'
+        || ((event.data.message.isError === true || event.data.error !== undefined) && !isBatchOutcomeError(event.data.error?.code))
         || event.data.turn !== identity.turn || event.data.step !== identity.step
         || assistant.seq !== identity.assistantSeq || call.data.callId !== identity.callId
         || call.data.name !== 'context_compress'
