@@ -33,6 +33,8 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 
 最终工具结果正常落档、Step 结束且至少有一个已确认提交时，插件在下一 Step 原生压力检查前，用短状态记录替换相邻调用与结果节点，支持部分成功。记录完整保留所有 region 的原 `input_index`、状态、`range`（含可选 role）、扩展标记、失败或未执行原因，以及原 assistant/tool-call/result 的 Log seq；不重放 summary。完整记录超出任一确认预算时保留原工具对，不截断端点或只留下 seq。工具层故障（不含已确认的 `ACP_PARTIAL`）、取消、不确定提交、无成功、清理前重启或资格不满足时也保留原工具对。原调用与结果始终可从 Log 回读。
 
+短状态记录使用最近已落档 request/header 匹配 `pressureRoutes`；扣除旧工具对、计入短记录后，若预估上下文仍达到提醒线 S，就在同一记录中提示继续压缩到 S 以下，不重复提交已成功项。低于 S 或路由未启用时不加此提示；不另发 acp-pressure 提醒、不修改持续高压去重和复位状态。提示连同完整记录受 confirmation 预算约束，放不下则保留原工具对。
+
 ## 配置与运行条件
 
 ACP 替换唯一 `compaction` provider；使用时须禁用原 Basic provider。原生自动压缩、pruner 和 overflow 处理仍由插件内的 Basic 实现执行。依赖 Query `captureSession` 和 tokenMeter，不需要 session-tools；普通历史工具可独立启用。
@@ -53,7 +55,7 @@ ACP 替换唯一 `compaction` provider；使用时须禁用原 Basic provider。
 
 每个 range 位于保护边界之间的同一 section，段内可任意细选，地图不规定压缩范围。B 标签和保护线索用于辨认不可选边界；端点从段内实际消息原文选择。pre-step 尚未落档的新输入／current entering Step 不在地图且不可选；工具跨度自动扩展后仍可能触保护，实际校验为准。
 
-整条提醒及包装沿用 reminderMaxTokens/Bytes。预算不足时优先保留任务承载组，按剩余空间列出其他组；未列部分明确给出组数／节点数，不能据此认定区段无保护。核心行动文字及遗漏说明也放不下时，生成失败并报告实际计量与上限，不消耗提醒资格。每个启用路由指定 `provider`、`model`、`nudgeAtTokens`（S）和 `resetBelowTokens`（R），满足 `0 <= R < S < H`；H 是原生自动压缩线。每段持续高压只提醒一次，实时计量低于 R 才复位；恢复时保留已落档提醒状态。提醒不额外发起模型请求，不改变原生兜底。
+整条提醒及包装沿用 reminderMaxTokens/Bytes。预算不足时优先保留任务承载组，按剩余空间列出其他组；未列部分明确给出组数／节点数，不能据此认定区段无保护。核心行动文字及遗漏说明也放不下时，生成失败并报告实际计量与上限，不消耗提醒资格。每个启用路由指定 `provider`、`model`、`nudgeAtTokens`（S）和 `resetBelowTokens`（R），满足 `0 <= R < S < H`；H 是原生自动压缩线。独立提前提醒在每段持续高压只发送一次，实时计量低于 R 才复位；恢复时保留已落档提醒状态。提醒不额外发起模型请求，不改变原生兜底。
 
 ## 开发文档
 

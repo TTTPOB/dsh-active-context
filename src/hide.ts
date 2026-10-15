@@ -31,7 +31,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate): UserMessage | undefined {
+function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate, session: Session): UserMessage | undefined {
   const retryable = candidate.facts.regions.filter(fact => fact.status === 'failed' || fact.status === 'not_attempted').map(fact => fact.inputIndex)
   const record = {
     status: candidate.facts.status === 'batch_success' ? 'compressed' : 'partial',
@@ -43,10 +43,23 @@ function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate)
     log: { assistant_seq: candidate.assistantSeq, tool_call_seq: candidate.toolCallSeq, result_seq: candidate.resultSeq },
     retry: retryable.length === 0 ? undefined : { regions: retryable, instruction: RETRY_INSTRUCTION },
   }
-  const message = createUserMessage({
+  let message = createUserMessage({
     content: [{ type: 'text', text: 'Context compression committed; original call/result archived. ' + JSON.stringify(record) }],
     source: { kind: 'acp-maintenance', form: 'notice', summary: boundContextSummary('Context compression status; original call and result archived.') },
   })
+  const header = session.requestHeader()
+  const route = config.pressureRoutes.find(route => route.provider === header?.config.provider && route.model === header.config.model)
+  if (route !== undefined) {
+    const measurement = ctx.tokenMeter.measure(session)
+    const removedTokens = measurement.nodes.filter(node => node.seq === candidate.assistantSeq || node.seq === candidate.resultSeq)
+      .reduce((sum, node) => sum + node.tokens, 0)
+    // Price the short replacement, not the duplicated summary arguments and full tool result.
+    const afterReplacement = Math.max(0, measurement.totalTokens - removedTokens + ctx.tokenMeter.estimateMessage(message))
+    if (afterReplacement >= route.nudgeAtTokens) message = {
+      ...message,
+      content: [...message.content, { type: 'text', text: `Context remains at or above the reminder threshold S=${route.nudgeAtTokens} tokens after this tool-pair replacement. Continue context_compress on other completed work until below S; do not resubmit committed regions.` }],
+    }
+  }
   // Never truncate real endpoints or omit retry facts to fit the cleanup budget.
   if (Buffer.byteLength(JSON.stringify(message), 'utf8') > config.confirmationMaxBytes
     || ctx.tokenMeter.estimateMessage(message) > config.confirmationMaxTokens) return undefined
@@ -165,7 +178,7 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState): H
       const assistantMessage = session.deriveEventMessage(assistant)
       const resultMessage = session.deriveEventMessage(result)
       if (assistantMessage !== assistant.data.message || resultMessage !== result.data.message) return
-      const message = confirmation(ctx, config, candidate)
+      const message = confirmation(ctx, config, candidate, session)
       if (message === undefined) return
       const shadowedSeqs = [candidate.assistantSeq, candidate.resultSeq]
       const shadowedTokenCount = ctx.tokenMeter.estimateMessage(assistantMessage) + ctx.tokenMeter.estimateMessage(resultMessage)

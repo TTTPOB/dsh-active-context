@@ -16,7 +16,7 @@ H = floor(min(C × thresholdRatio, C − O − headroomTokens))
 
 C 为模型上下文容量；O 取工作请求 maxTokens 或 adapter 默认输出，两者未声明时为 0。路由取最近已落档 request/header，模型容量通过 llm.resolveModelInfo 查询。静态配置错误在加载时拒绝；容量未知或动态 R/S/H 不合法时诊断一次并跳过该路由提醒，原生处理继续。
 
-每段持续高压只提醒一次，实际 user/message 落档才消耗提醒资格。实时 T < R 后复位；新 Turn、任务或路由延续 session-local 状态。恢复时当前低于 R 直接复位，否则从原始 Log 一次扫描已落档提醒；正文被压缩不影响恢复。正常步骤使用内存状态。
+独立提前提醒在每段持续高压只发送一次，实际 user/message 落档才消耗提醒资格。实时 T < R 后复位；新 Turn、任务或路由延续 session-local 状态。恢复时当前低于 R 直接复位，否则从原始 Log 一次扫描已落档提醒；正文被压缩不影响恢复。正常步骤使用内存状态。压缩后仍高压的反馈由[工具对替换记录](<0001-active-compaction-submission.md#最终结算与工具对清理>)承担，不重置此 episode，也不另发提前提醒。
 
 地图只列当前存活保护节点，连续同类节点合组并按 Surface 位置排列。分类按 current_step → instructions → latest_task_input/checkpoint 优先级处理多原因；B 标签只在本张地图有效。短原文优先正文，按实际 role 检查单 block literal 唯一性；找不到有界唯一片段时如实标注。段内可任意细选，保护地图不生成摘要或规定压缩范围。
 

@@ -204,7 +204,14 @@ try {
         assert.equal(help.ranges.length, 1)
         assert.ok(!JSON.stringify(help).includes('summary'))
         blocks = [{ type: 'tool-call', id: ToolCallId('artifact-boundary-retry'), name: 'context_compress', arguments: JSON.stringify({ regions: help.ranges.map(range => ({ range, summary: 'Artifact relay work conclusion retained.' })) }) }]
-      } else if (boundaryIndex === 3) blocks = [{ type: 'text', text: 'Artifact boundary retry finished.' }]
+      } else if (boundaryIndex === 3) {
+        const maintenance = options.messages.find(message => message.source?.kind === 'acp-maintenance')
+        assert.ok(maintenance)
+        const text = maintenance.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+        assert.ok(text.includes('S=1000 tokens after this tool-pair replacement'))
+        assert.ok(text.includes('Continue context_compress on other completed work until below S'))
+        blocks = [{ type: 'text', text: 'Artifact boundary retry finished.' }]
+      }
       else throw new Error('Unexpected boundary model request')
       boundaryIndex++
       for (const [i, block] of blocks.entries()) {
@@ -240,7 +247,7 @@ try {
   console.log(JSON.stringify({
     sharedPeers: 'Host Cordis/DSH identity; same-version Schemastery',
     loader: 'all rows active, unique ACP provider, Host schema validation',
-    behavior: 'two adjacent commits, independent summaries, retained constraint, pair cleanup, replay; relay-body map, display exclusion, protected split retry; provider disposal',
+    behavior: 'two adjacent commits, independent summaries, retained constraint, pair cleanup, replay; relay-body map, display exclusion, protected split retry, still-high advice in maintenance without another pressure notice; provider disposal',
     compatibility, testLocalExemptionsOnly: true,
   }, null, 2))
 } finally {

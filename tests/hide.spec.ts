@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, HarnessError } from '@deepseek-ai/dsh-llm'
 import { Session } from '@deepseek-ai/dsh-session'
 import { call, facts, fixture, frame } from './guard-fixtures/fixture.ts'
 
@@ -171,6 +171,52 @@ it('keeps complete long endpoints in the original pair when the status record ex
     expect(f.agent.session.surface.nodes).toEqual([pair.assistant.seq, pair.resultEvent.seq])
     expect(f.agent.session.eventAt(pair.assistant.seq)).toEqual(pair.assistant)
     expect(f.agent.session.snapshotEvents().some(event => event.type === 'compaction/prune')).toBe(false)
+  }
+})
+
+it.each(['success', 'partial'] as const)('adds still-high advice to the existing maintenance record after %s without another pressure notice', async mode => {
+  const f = await create({
+    config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens: 1, resetBelowTokens: 0 }] },
+    body(exec, state) {
+      if (mode === 'partial') {
+        state.facts.set(exec, facts('partial'))
+        throw new HarnessError('One region failed.', 'ACP_PARTIAL')
+      }
+    },
+  })
+  f.agent.session.append('request/header', { header: { config: { provider: 'guard-test', model: 'scripted' } }, reason: 'initial' })
+  const pair = await f.manual()
+  expect(pair.result.isError).toBe(mode === 'partial')
+  await f.hide.cleanupBeforeNative(frame(f.agent))
+  const records = f.agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')
+  expect(records).toHaveLength(1)
+  expect(JSON.stringify(records[0])).toContain('Continue context_compress on other completed work until below S')
+  expect(JSON.stringify(records[0])).toContain('S=1 tokens')
+  expect(f.agent.session.snapshotEvents().some(event => event.type === 'user/message' && event.data.source.kind === 'acp-pressure')).toBe(false)
+  expect(f.ctx.tokenMeter.measure(f.agent.session).totalTokens).toBeGreaterThanOrEqual(1)
+  const replay = Session.create(f.agent.session.id, f.agent.session.snapshotEvents())
+  expect(replay.deriveMessages()).toEqual(f.agent.session.deriveMessages())
+  await f.hide.cleanupBeforeNative(frame(f.agent))
+  expect(f.agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')).toHaveLength(1)
+})
+
+it('compares S with pressure after removing the full tool pair, including the short replacement', async () => {
+  const header = { header: { config: { provider: 'guard-test', model: 'scripted' } }, reason: 'initial' as const }
+  const blocks = [{ ...call(), arguments: JSON.stringify({ summary: 'Already committed summary. '.repeat(500) }) }]
+  const baseline = await create()
+  baseline.agent.session.append('request/header', header)
+  await baseline.manual(blocks)
+  await baseline.hide.cleanupBeforeNative(frame(baseline.agent))
+  const shortTokens = baseline.ctx.tokenMeter.measure(baseline.agent.session).totalTokens
+  for (const threshold of [shortTokens, shortTokens + 1]) {
+    const f = await create({ config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens: threshold, resetBelowTokens: 0 }] } })
+    f.agent.session.append('request/header', header)
+    await f.manual(blocks)
+    expect(f.ctx.tokenMeter.measure(f.agent.session).totalTokens).toBeGreaterThan(threshold)
+    await f.hide.cleanupBeforeNative(frame(f.agent))
+    const text = JSON.stringify(f.agent.session.deriveMessages())
+    expect(text.includes('Continue context_compress on other completed work until below S')).toBe(threshold === shortTokens)
+    if (threshold > shortTokens) expect(f.ctx.tokenMeter.measure(f.agent.session).totalTokens).toBe(shortTokens)
   }
 })
 
