@@ -208,8 +208,8 @@ try {
         const maintenance = options.messages.find(message => message.source?.kind === 'acp-maintenance')
         assert.ok(maintenance)
         const text = maintenance.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
-        assert.ok(text.includes('S=1000 tokens after this tool-pair replacement'))
-        assert.ok(text.includes('Continue context_compress on other completed work until below S'))
+        assert.ok(text.includes('R=200 tokens after this tool-pair replacement'))
+        assert.ok(text.includes('Continue context_compress on other completed work until below R to rearm pressure reminders'))
         blocks = [{ type: 'text', text: 'Artifact boundary retry finished.' }]
       }
       else throw new Error('Unexpected boundary model request')

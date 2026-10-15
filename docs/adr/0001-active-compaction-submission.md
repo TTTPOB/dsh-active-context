@@ -33,7 +33,7 @@ execution-local facts 保存真实提交证据，finalizeContent 将其附到取
 
 维护记录包含全批原 input_index/status/range（完整 text 与可选 role）、扩展时的 expanded: true、失败或未执行原因、停止原因及原 assistant/tool-call/result Log seq；不包含 summary。记录说明仅重选失败或未执行项。摘要留在 checkpoint；原始参数和结果留在 Log，替换关系可回放。
 
-记录生成时按最近 request/header 匹配已启用的 pressureRoutes，使用 token-meter 当前 totalTokens 减去旧工具对的路由 tokens、加上短记录估计量，判断替换后是否仍达到 nudgeAtTokens（S）。达到时在同一消息内追加继续压缩到 S 以下的提示；未达到或路由未启用则不追加。不要求先降到复位线 R，也不改变独立提前提醒的 episode；每次实际提交后的工具对替换都可给出此反馈。提示计入完整 confirmation 预算，不能容纳则保留原工具对。
+记录生成时按最近 request/header 匹配已启用的 pressureRoutes，使用 token-meter 当前 totalTokens 减去旧工具对的路由 tokens、加上短记录估计量，判断替换后是否仍达到 resetBelowTokens（R）。达到时在同一消息内追加继续压缩到 R 以下、恢复独立压力提醒资格的提示；即使已低于提醒线 S，处于 R ≤ T < S 时也提示。低于 R 或路由未启用则不追加，不改变独立提前提醒的 episode；每次实际提交后的工具对替换都可给出此反馈。提示计入完整 confirmation 预算，不能容纳则保留原工具对。
 
 确认预算针对完整消息（含包装）计量，默认 1200 tokens/8000 UTF-8 bytes，可配置。完整记录不满足任一预算时保留原工具对；不裁短真实端点、不舍弃逐项原因，也不降为只有 seq 的记录。该预算覆盖普通短锚点批次，不承诺容纳所有合法长参数。完整工具结果也受 resultMaxBytes 约束，首次写入前预留完整原 range 和回读 seq 所需空间；无法容纳则在提交前报预算错误。
 

@@ -55,9 +55,9 @@ function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate,
       .reduce((sum, node) => sum + node.tokens, 0)
     // Price the short replacement, not the duplicated summary arguments and full tool result.
     const afterReplacement = Math.max(0, measurement.totalTokens - removedTokens + ctx.tokenMeter.estimateMessage(message))
-    if (afterReplacement >= route.nudgeAtTokens) message = {
+    if (afterReplacement >= route.resetBelowTokens) message = {
       ...message,
-      content: [...message.content, { type: 'text', text: `Context remains at or above the reminder threshold S=${route.nudgeAtTokens} tokens after this tool-pair replacement. Continue context_compress on other completed work until below S; do not resubmit committed regions.` }],
+      content: [...message.content, { type: 'text', text: `Context remains at or above the reset threshold R=${route.resetBelowTokens} tokens after this tool-pair replacement. Continue context_compress on other completed work until below R to rearm pressure reminders; do not resubmit committed regions.` }],
     }
   }
   // Never truncate real endpoints or omit retry facts to fit the cleanup budget.

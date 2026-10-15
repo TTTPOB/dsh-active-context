@@ -176,7 +176,7 @@ it('keeps complete long endpoints in the original pair when the status record ex
 
 it.each(['success', 'partial'] as const)('adds still-high advice to the existing maintenance record after %s without another pressure notice', async mode => {
   const f = await create({
-    config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens: 1, resetBelowTokens: 0 }] },
+    config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens: 10000, resetBelowTokens: 1 }] },
     body(exec, state) {
       if (mode === 'partial') {
         state.facts.set(exec, facts('partial'))
@@ -190,17 +190,18 @@ it.each(['success', 'partial'] as const)('adds still-high advice to the existing
   await f.hide.cleanupBeforeNative(frame(f.agent))
   const records = f.agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')
   expect(records).toHaveLength(1)
-  expect(JSON.stringify(records[0])).toContain('Continue context_compress on other completed work until below S')
-  expect(JSON.stringify(records[0])).toContain('S=1 tokens')
+  expect(JSON.stringify(records[0])).toContain('Continue context_compress on other completed work until below R to rearm pressure reminders')
+  expect(JSON.stringify(records[0])).toContain('R=1 tokens')
   expect(f.agent.session.snapshotEvents().some(event => event.type === 'user/message' && event.data.source.kind === 'acp-pressure')).toBe(false)
   expect(f.ctx.tokenMeter.measure(f.agent.session).totalTokens).toBeGreaterThanOrEqual(1)
+  expect(f.ctx.tokenMeter.measure(f.agent.session).totalTokens).toBeLessThan(10000)
   const replay = Session.create(f.agent.session.id, f.agent.session.snapshotEvents())
   expect(replay.deriveMessages()).toEqual(f.agent.session.deriveMessages())
   await f.hide.cleanupBeforeNative(frame(f.agent))
   expect(f.agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')).toHaveLength(1)
 })
 
-it('compares S with pressure after removing the full tool pair, including the short replacement', async () => {
+it('compares R with pressure after removing the full tool pair, including the short replacement', async () => {
   const header = { header: { config: { provider: 'guard-test', model: 'scripted' } }, reason: 'initial' as const }
   const blocks = [{ ...call(), arguments: JSON.stringify({ summary: 'Already committed summary. '.repeat(500) }) }]
   const baseline = await create()
@@ -209,13 +210,13 @@ it('compares S with pressure after removing the full tool pair, including the sh
   await baseline.hide.cleanupBeforeNative(frame(baseline.agent))
   const shortTokens = baseline.ctx.tokenMeter.measure(baseline.agent.session).totalTokens
   for (const threshold of [shortTokens, shortTokens + 1]) {
-    const f = await create({ config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens: threshold, resetBelowTokens: 0 }] } })
+    const f = await create({ config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens: threshold + 1000, resetBelowTokens: threshold }] } })
     f.agent.session.append('request/header', header)
     await f.manual(blocks)
     expect(f.ctx.tokenMeter.measure(f.agent.session).totalTokens).toBeGreaterThan(threshold)
     await f.hide.cleanupBeforeNative(frame(f.agent))
     const text = JSON.stringify(f.agent.session.deriveMessages())
-    expect(text.includes('Continue context_compress on other completed work until below S')).toBe(threshold === shortTokens)
+    expect(text.includes('Continue context_compress on other completed work until below R to rearm pressure reminders')).toBe(threshold === shortTokens)
     if (threshold > shortTokens) expect(f.ctx.tokenMeter.measure(f.agent.session).totalTokens).toBe(shortTokens)
   }
 })
