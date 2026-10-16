@@ -81,8 +81,8 @@ export function apply(ctx: Context, config: PluginConfig = Config({})): void {
   // Service registration and native Basic listeners belong to this plugin fiber.
   const engine = new ActiveCompactionEngine(ctx, config.basic)
   const guard = installGuard(ctx, config.acp, state)
-  const hide = installHide(ctx, config.acp, state)
   const reminder = installReminder(ctx, config.acp, engine.config)
+  const hide = installHide(ctx, config.acp, state, reminder)
   ctx.systemPrompt.section({ name: 'active-context', order: 80, text: `Submit 1-${config.acp.maxRegions} non-overlapping regions per context_compress call.\n\n${ACP_INSTRUCTIONS}` })
   ctx.tools.register(defineTool({
     name: 'context_compress',

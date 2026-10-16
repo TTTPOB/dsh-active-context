@@ -4,7 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { boundContextSummary, createUserMessage, type UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
-import type { AcpConfig, AcpState, HideCandidate, HideHooks } from './types.ts'
+import type { AcpConfig, AcpState, HideCandidate, HideHooks, ReminderHooks } from './types.ts'
 import { isBatchOutcomeError, RETRY_INSTRUCTION } from './regions.ts'
 
 interface ObservedStep {
@@ -31,7 +31,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate, session: Session): UserMessage | undefined {
+function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate, session: Session, reminder: Pick<ReminderHooks, 'hasPendingReminder'>): UserMessage | undefined {
   const retryable = candidate.facts.regions.filter(fact => fact.status === 'failed' || fact.status === 'not_attempted').map(fact => fact.inputIndex)
   const record = {
     status: candidate.facts.status === 'batch_success' ? 'compressed' : 'partial',
@@ -54,16 +54,18 @@ function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate,
     const measurement = ctx.tokenMeter.measure(session)
     const removedTokens = measurement.nodes.filter(node => node.seq === candidate.assistantSeq || node.seq === candidate.resultSeq)
       .reduce((sum, node) => sum + node.tokens, 0)
-    const below: UserMessage = {
-      ...message,
-      content: [...message.content, { type: 'text', text: `Compression target reached: context is now below the reset threshold R=${route.resetBelowTokens} tokens after this tool-pair replacement. No further pressure-driven compression is needed.` }],
-    }
-    // Include the completion text itself before claiming that the reset target is reached.
-    const afterReplacement = Math.max(0, measurement.totalTokens - removedTokens + ctx.tokenMeter.estimateMessage(below))
-    message = afterReplacement < route.resetBelowTokens ? below : {
-      ...message,
-      content: [...message.content, { type: 'text', text: `Context remains at or above the reset threshold R=${route.resetBelowTokens} tokens after this tool-pair replacement. Continue context_compress on other completed work until below R to rearm pressure reminders; do not resubmit committed regions.` }],
-    }
+    const pending = reminder.hasPendingReminder(session)
+    const feedback = (text: string): UserMessage => ({ ...message, content: [...message.content, { type: 'text', text }] })
+    const afterReplacement = (candidate: UserMessage) => Math.max(0, measurement.totalTokens - removedTokens + ctx.tokenMeter.estimateMessage(candidate))
+    const below = feedback((pending ? 'Compression target reached: context is now below' : 'Context is below')
+      + ` the reset threshold R=${route.resetBelowTokens} tokens after this tool-pair replacement. No further pressure-driven compression is needed.`)
+    const middle = feedback(`Context is below the reminder threshold S=${route.nudgeAtTokens} tokens after this tool-pair replacement. No pressure reminder is awaiting reset; no further pressure-driven compression is needed.`)
+    // Price each short status including its own text before selecting a longer advisory.
+    if (afterReplacement(below) < route.resetBelowTokens) message = below
+    else if (!pending && afterReplacement(middle) < route.nudgeAtTokens) message = middle
+    else message = feedback(pending
+      ? `Context remains at or above the reset threshold R=${route.resetBelowTokens} tokens after this tool-pair replacement. Continue context_compress on other completed work until below R to rearm pressure reminders; do not resubmit committed regions.`
+      : `Context remains at or above the reminder threshold S=${route.nudgeAtTokens} tokens after this tool-pair replacement. Further pressure reduction is recommended: use context_compress on other completed work toward below the reset threshold R=${route.resetBelowTokens} tokens. Do not resubmit committed regions.`)
   }
   // Never truncate real endpoints or omit retry facts to fit the cleanup budget.
   if (Buffer.byteLength(JSON.stringify(message), 'utf8') > config.confirmationMaxBytes
@@ -76,9 +78,10 @@ function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate,
  * @param ctx - effect-owning context with token-meter and session observers.
  * @param config - complete short-confirmation budgets.
  * @param state - composition-owned identities, execution facts, and candidates.
+ * @param reminder - authoritative committed, not-yet-reset pressure-episode state.
  * @returns cleanup hook; the composition owner alone registers pre-step.
  */
-export function installHide(ctx: Context, config: AcpConfig, state: AcpState): HideHooks {
+export function installHide(ctx: Context, config: AcpConfig, state: AcpState, reminder: Pick<ReminderHooks, 'hasPendingReminder'>): HideHooks {
   let steps = new WeakMap<Session, ObservedStep>()
   let pairs = new WeakMap<Agent, ObservedPair>()
   const candidateAgents = new Set<Agent>()
@@ -183,7 +186,7 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState): H
       const assistantMessage = session.deriveEventMessage(assistant)
       const resultMessage = session.deriveEventMessage(result)
       if (assistantMessage !== assistant.data.message || resultMessage !== result.data.message) return
-      const message = confirmation(ctx, config, candidate, session)
+      const message = confirmation(ctx, config, candidate, session, reminder)
       if (message === undefined) return
       const shadowedSeqs = [candidate.assistantSeq, candidate.resultSeq]
       const shadowedTokenCount = ctx.tokenMeter.estimateMessage(assistantMessage) + ctx.tokenMeter.estimateMessage(resultMessage)

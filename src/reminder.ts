@@ -92,6 +92,14 @@ function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, 
  */
 export function installReminder(ctx: Context, config: AcpConfig, basic: ReminderBasicConfig): ReminderHooks {
   const episodes = new WeakMap<Session, Episode>()
+  const episodeFor = (session: Session): Episode => {
+    let episode = episodes.get(session)
+    if (episode === undefined) {
+      episode = { reminded: previouslyReminded(session) }
+      episodes.set(session, episode)
+    }
+    return episode
+  }
   const warned = new Set<string>()
   let active = true
   ctx.effect(() => () => { active = false })
@@ -109,6 +117,7 @@ export function installReminder(ctx: Context, config: AcpConfig, basic: Reminder
     ctx.logger.warn(`ACP pressure reminder (${route}): ${detail}; native pressure handling remains enabled`)
   }
   return {
+    hasPendingReminder: session => episodeFor(session).reminded,
     async noticeAfterNative(frame, decision) {
       if (!active || config.pressureRoutes.length === 0 || decision.kind === 'reject' || frame.signal.aborted) return decision
       // Match Loop/model-selection suppression: a notice must not wake a skipped step.
@@ -146,10 +155,7 @@ export function installReminder(ctx: Context, config: AcpConfig, basic: Reminder
       if (measurement.totalTokens < route.resetBelowTokens) {
         episode = { reminded: false }
         episodes.set(session, episode)
-      } else if (episode === undefined) {
-        episode = { reminded: previouslyReminded(session) }
-        episodes.set(session, episode)
-      }
+      } else episode = episodeFor(session)
       if (episode.reminded || measurement.totalTokens < route.nudgeAtTokens) return decision
       const message = await ctx.sessionQuery.captureSession(frame.agent.id, (reader, observation) =>
         notice(ctx, config, measurement, nativeAt, sampleSurface(frame.agent, reader, observation), frame), { projectionMode: 'none' })

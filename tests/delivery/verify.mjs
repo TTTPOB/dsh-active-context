@@ -108,7 +108,8 @@ try {
         const maintenance = options.messages.find(message => message.source?.kind === 'acp-maintenance')
         assert.ok(maintenance)
         const feedback = maintenance.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
-        assert.ok(feedback.includes('Compression target reached: context is now below the reset threshold R=50000 tokens'))
+        assert.ok(feedback.includes('Context is below the reset threshold R=50000 tokens'))
+        assert.ok(!feedback.includes('Compression target reached:'))
         assert.ok(feedback.includes('No further pressure-driven compression is needed.'))
         assert.ok(!feedback.includes('Continue context_compress on other completed work'))
         blocks = [{ type: 'text', text: 'Continued artifact task with preserved constraints.' }]

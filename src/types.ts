@@ -3,7 +3,7 @@ import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { BasicCompactionConfig, ResolvedConfig as BasicResolvedConfig } from '@deepseek-ai/dsh-compaction-basic'
 import type { CompactionId, CompactionResult } from '@deepseek-ai/dsh-compaction'
 import type { ContentBlock, Message, ToolCallId, UserMessage } from '@deepseek-ai/dsh-llm'
-import type { SessionEvent, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 
@@ -159,6 +159,8 @@ export interface HideHooks {
 
 /** Reminder worker measures after native processing and preserves decision metadata. */
 export interface ReminderHooks {
+  /** Whether this session has a committed pressure notice that has not reset. */
+  hasPendingReminder(session: Session): boolean
   noticeAfterNative(frame: PreStepFrame, decision: PreStepDecision): Promise<PreStepDecision>
 }
 

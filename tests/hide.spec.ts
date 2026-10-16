@@ -180,11 +180,12 @@ it('keeps complete long endpoints in the original pair when the status record ex
   }
 })
 
-it.each(['success', 'partial'] as const)('states whether compression reached R after %s in the same maintenance record', async mode => {
-  for (const resetBelowTokens of [1, 10000]) {
-    const reached = resetBelowTokens === 10000
-    const f = await create({
-      config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens: 11000, resetBelowTokens }] },
+it.each([false, true])('reports three pressure bands with pending reminder=%s', async pressurePending => {
+  for (const mode of ['success', 'partial']) for (const band of ['low', 'middle', 'high']) {
+    const resetBelowTokens = band === 'low' ? 10000 : 1
+    const nudgeAtTokens = band === 'high' ? 2 : 11000
+    const f = await create({ pressurePending,
+      config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens, resetBelowTokens }] },
       body(exec, state) {
         if (mode === 'partial') {
           state.facts.set(exec, facts('partial'))
@@ -199,14 +200,17 @@ it.each(['success', 'partial'] as const)('states whether compression reached R a
     const records = f.agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')
     expect(records).toHaveLength(1)
     const text = JSON.stringify(records[0])
-    expect(text.includes('No further pressure-driven compression is needed.')).toBe(reached)
-    expect(text.includes('Compression target reached: context is now below the reset threshold')).toBe(reached)
-    expect(text.includes('Continue context_compress on other completed work until below R to rearm pressure reminders')).toBe(!reached)
-    expect(text).toContain('R=' + resetBelowTokens + ' tokens')
-    expect(f.agent.session.snapshotEvents().some(event => event.type === 'user/message' && event.data.source.kind === 'acp-pressure')).toBe(false)
+    expect(text.includes('Compression target reached:')).toBe(pressurePending && band === 'low')
+    expect(text.includes('No further pressure-driven compression is needed.')).toBe(band === 'low')
+    expect(text.includes('no further pressure-driven compression is needed.')).toBe(!pressurePending && band === 'middle')
+    expect(text.includes('Continue context_compress on other completed work until below R to rearm pressure reminders')).toBe(pressurePending && band !== 'low')
+    expect(text.includes('Further pressure reduction is recommended:')).toBe(!pressurePending && band === 'high')
+    expect(text.includes('No pressure reminder is awaiting reset;')).toBe(!pressurePending && band === 'middle')
+    expect(text.includes('rearm pressure reminders')).toBe(pressurePending && band !== 'low')
     const total = f.ctx.tokenMeter.measure(f.agent.session).totalTokens
-    expect(total < resetBelowTokens).toBe(reached)
-    expect(total).toBeLessThan(11000)
+    expect(total < resetBelowTokens).toBe(band === 'low')
+    expect(total >= nudgeAtTokens).toBe(band === 'high')
+    expect(f.agent.session.snapshotEvents().some(event => event.type === 'user/message' && event.data.source.kind === 'acp-pressure')).toBe(false)
     const replay = Session.create(f.agent.session.id, f.agent.session.snapshotEvents())
     expect(replay.deriveMessages()).toEqual(f.agent.session.deriveMessages())
     await f.hide.cleanupBeforeNative(frame(f.agent))
@@ -223,7 +227,7 @@ it('compares R with pressure after removing the full tool pair, including the sh
   await baseline.hide.cleanupBeforeNative(frame(baseline.agent))
   const shortTokens = baseline.ctx.tokenMeter.measure(baseline.agent.session).totalTokens
   for (const threshold of [shortTokens, shortTokens + 1, shortTokens + 1000]) {
-    const f = await create({ config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens: threshold + 1000, resetBelowTokens: threshold }] } })
+    const f = await create({ pressurePending: true, config: { pressureRoutes: [{ provider: 'guard-test', model: 'scripted', nudgeAtTokens: threshold + 1000, resetBelowTokens: threshold }] } })
     f.agent.session.append('request/header', header)
     await f.manual(blocks)
     expect(f.ctx.tokenMeter.measure(f.agent.session).totalTokens).toBeGreaterThan(threshold)

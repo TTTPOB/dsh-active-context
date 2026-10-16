@@ -60,6 +60,7 @@ export async function fixture(options: {
   body?: (exec: ToolRunContext, state: AcpState) => void
   config?: Partial<AcpConfig>
   cleanup?: boolean
+  pressurePending?: boolean
 } = {}) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx, { tools: { mode: options.mode ?? 'native' } })
@@ -75,7 +76,7 @@ export async function fixture(options: {
     inject: ['tools', 'tokenMeter'],
     apply(scope) {
       guard = installGuard(scope, config, state)
-      hide = installHide(scope, config, state)
+      hide = installHide(scope, config, state, { hasPendingReminder: () => options.pressurePending ?? false })
       scope.tools.register({
         name: 'context_compress', description: 'test compression', parameters: {},
         output: { schema: { type: 'object' }, render: () => [{ type: 'text', text: 'original successful body' }] },
