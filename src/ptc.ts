@@ -60,7 +60,7 @@ export function installPtc(
     const args = exec.arguments
     if (args === null || typeof args !== 'object' || !('code' in args) || typeof args.code !== 'string') return undefined
     const input = compressionProgram(args.code)
-    if (input === undefined) return args.code.includes('context_compress') ? PTC_DENIAL : undefined
+    if (input === undefined) return undefined
     const runtime = ctx.get('ptcRuntime')
     if (runtime?.language !== 'typescript' || runtime.programFormat !== 'function-body') {
       return 'ACP PTC requires a TypeScript function-body runtime. Configure that runtime or use native mode. ' + PTC_DENIAL

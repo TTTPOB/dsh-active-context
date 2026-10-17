@@ -27,7 +27,7 @@ ACP 0.5 使用官方 DSH `0.2.1-rc.1` 与配套 Session／Query `0.2.1-rc.1-fork
 
 ## PTC 最终结算
 
-规范程序只含一个 JSON 字面量调用，guard 拒绝变量、注释和额外语句；root run_code 必须是独立的真实 assistant 调用，其唯一直属子调用的参数必须与 JSON 深等。压缩仍发生在当前 Step 内，当前 Step 全部受保护。无需跨 Step 排队，也不会在取消后另用独立信号启动新压缩。
+规范压缩程序只含一个 JSON 字面量调用；root run_code 必须是独立的真实 assistant 调用，其唯一直属子调用的参数必须与 JSON 深等。普通脚本提及 `context_compress` 字样不受限制；非规范脚本实际调用该工具时，调用层 guard 因其缺少规范 root 登记而拒绝压缩，不阻止脚本中此前的普通调用。压缩仍发生在当前 Step 内，当前 Step 全部受保护。无需跨 Step 排队，也不会在取消后另用独立信号启动新压缩。
 
 子调用的最终提交事实写入 root 结果。上游最后阶段取消或策略异常可能覆盖该正文；最终 `tools/result` observer 在这种情况下追加 source 为 `acp-maintenance` 的有界持久状态 notice，不额外启动模型步骤。原生与 PTC 均保留已提交 region，取消或未知故障停止余项。
 

@@ -38,7 +38,7 @@ it('only parses the complete canonical JSON-literal program', () => {
   }
 })
 
-async function ptcFixture(outcome: 'success' | 'partial' | 'cancel' | 'late-cancel' | 'post-block' | 'post-throw' | 'post-replace' | 'invalid' | 'mixed') {
+async function ptcFixture(outcome: 'success' | 'partial' | 'cancel' | 'late-cancel' | 'post-block' | 'post-throw' | 'post-replace' | 'invalid' | 'mention') {
   let input: CompressInput
   let ordinaryRuns = 0
   const f = await createLoopFixture([
@@ -48,7 +48,7 @@ async function ptcFixture(outcome: 'success' | 'partial' | 'cancel' | 'late-canc
     () => {
       let code = `return await tools.context_compress(${JSON.stringify(input)});`
       if (outcome === 'invalid') code = `const input = ${JSON.stringify(input)}; return await tools.context_compress(input);`
-      if (outcome === 'mixed') code = `await tools.ordinary({}); ${code}`
+      if (outcome === 'mention') code = `const name = 'context_compress'; return await tools.ordinary({});`
       return [{ type: 'tool-call', name: 'run_code', id: ToolCallId('ptc-compress'), arguments: JSON.stringify({ code, description: 'Compress completed history' }) }]
     },
     [{ type: 'text', text: 'Continue after compression.' }],
@@ -86,6 +86,17 @@ async function ptcFixture(outcome: 'success' | 'partial' | 'cancel' | 'late-canc
   return { ...f, input, ordinaryRuns: () => ordinaryRuns }
 }
 
+it('executes ordinary scripts that mention context_compress', async () => {
+  const f = await ptcFixture('mention')
+  try {
+    const log = f.agent.session.snapshotEvents()
+    const result = log.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'ptc-compress')!
+    expect(result).toMatchObject({ data: { message: { isError: false } } })
+    expect(f.ordinaryRuns()).toBe(1)
+    expect(log.filter(event => event.type === 'compaction/summary')).toHaveLength(0)
+  } finally { await f.ctx.fiber.dispose() }
+})
+
 it('compresses through the real PTC bridge, then hides only the successful canonical root pair', async () => {
   const f = await ptcFixture('success')
   try {
@@ -109,7 +120,7 @@ it('compresses through the real PTC bridge, then hides only the successful canon
   } finally { await f.ctx.fiber.dispose() }
 })
 
-for (const outcome of ['partial', 'cancel', 'late-cancel', 'post-block', 'post-throw', 'post-replace', 'invalid', 'mixed'] as const) it(`preserves the root pair and final accounting for ${outcome}`, async () => {
+for (const outcome of ['partial', 'cancel', 'late-cancel', 'post-block', 'post-throw', 'post-replace', 'invalid'] as const) it(`preserves the root pair and final accounting for ${outcome}`, async () => {
   const f = await ptcFixture(outcome)
   try {
     const log = f.agent.session.snapshotEvents()
@@ -118,10 +129,10 @@ for (const outcome of ['partial', 'cancel', 'late-cancel', 'post-block', 'post-t
     expect(f.agent.session.surface.nodes).toContain(result.seq)
     expect(result).toMatchObject({ data: { message: { isError: outcome !== 'post-replace' } } })
     if (outcome === 'post-replace') expect(JSON.stringify(result)).toContain('Policy amended the successful root result')
-    if (outcome === 'invalid' || outcome === 'mixed') {
+    if (outcome === 'invalid') {
       expect(log.filter(event => event.type === 'compaction/summary')).toHaveLength(0)
       expect(JSON.stringify(result)).toContain('return await tools.context_compress')
-      expect(f.ordinaryRuns()).toBe(0)
+      expect(log.filter(event => event.type === 'tool/ptc-dispatch')).toHaveLength(1)
     } else {
       expect(log.some(event => event.type === 'compaction/summary')).toBe(true)
       const notices = log.filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')
@@ -136,6 +147,6 @@ for (const outcome of ['partial', 'cancel', 'late-cancel', 'post-block', 'post-t
     const seqs = [...f.agent.session.surface.nodes]
     const events = seqs.map(seq => log[seq]!)
     const surface: SurfaceCapture = { seqs, events, messages: events.map(event => f.agent.session.deriveEventMessage(event)), log }
-    expect(isEndpointCandidate(surface, seqs.indexOf(result.seq))).toBe(outcome === 'invalid' || outcome === 'mixed')
+    expect(isEndpointCandidate(surface, seqs.indexOf(result.seq))).toBe(outcome === 'invalid')
   } finally { await f.ctx.fiber.dispose() }
 })

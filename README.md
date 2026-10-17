@@ -9,6 +9,8 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 3. 在一条独立 assistant 响应中直接调用一次 `context_compress`，提交 `regions`。native 模式直接调用；ptc 模式只用一次 `run_code`，完整 `code` 为 `return await tools.context_compress(<JSON literal>);`，将 `<JSON literal>` 替换为实际参数 JSON 对象。只允许首尾空白，不接受变量、注释、其他语句或调用。该 assistant 响应只包含这次调用及可选 reasoning，不带其他工具或任务正文。
 4. 查看逐项结果。`status` 只有三种：`compressed`（全部区间提交且工具调用成功）、`partial`（保留了提交，但有区间或工具层失败）、`failed`（无一提交）。部分失败与全部失败分别返回真正的工具错误 `ACP_PARTIAL`／`ACP_ALL_FAILED`，不会只在成功结果正文中写失败。工具调用自身的失败另列 `call_error`（`aborted`／`error`）与 `final_error`，所以取消、宿主故障或策略拦截既不会被报成成功，也不会被批状态掩盖。`input_index` 从零开始对应输入，`execution_order` 给出实际尝试顺序；只有存在 `failed`／`not_attempted` 项时才出现 `retry`（需要重选的输入索引与重选说明）。每项给出原 `range`、仅扩展时出现的 `expanded: true`、实际选区节点数 `nodes`、`shadowed_tokens`／`replacement_tokens` 以及可回读的 `readback` seq；token 数使用 token-meter 路由计量，分别在预检和提交后测量。不返回内部事务 ID、重复计量、节省比例或 cleanup 状态。执行从 Surface 尾部向前进行，选区错误或原生摘要不缩水只影响该项，其他独立合法项继续。取消、未知宿主故障或不确定提交停止余项，已提交项不回滚。只用当前正文重新选择失败或未执行项；成功项的原端点不保证还能匹配。
 
+普通 `run_code` 脚本可读取、搜索或打印 `context_compress` 字样，不会因此被拒绝。非规范脚本若实际调用该工具，由 `context_compress` 调用层的 guard 拒绝；此前已执行的普通调用不回滚。
+
 接口示意：
 
 ```json
