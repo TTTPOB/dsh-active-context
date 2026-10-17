@@ -6,6 +6,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { AcpConfig, AcpState, HideCandidate, HideHooks, ReminderHooks } from './types.ts'
 import { isBatchOutcomeError, RETRY_INSTRUCTION } from './regions.ts'
+import { compressionProgram } from './ptc.ts'
 
 interface ObservedStep {
   readonly turn: number
@@ -92,9 +93,11 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState, re
   }
 
   ctx.on('tools/result', (exec, result) => {
-    if (exec.name !== 'context_compress' || exec.agent === undefined) return
+    if (exec.agent === undefined || exec.parent !== undefined
+      || (exec.name !== 'context_compress' && exec.name !== 'run_code')) return
     const identity = state.identities.get(exec)
     const facts = state.facts.get(exec)
+    if (exec.name === 'run_code' && (identity?.transport !== 'ptc' || result.isError || facts?.status !== 'batch_success')) return
     const step = steps.get(exec.agent.session)
     if (step === undefined || identity === undefined || (result.isError && !isBatchOutcomeError(result.error.info?.code)) || exec.signal.aborted
       || facts === undefined || facts.regions.some(region => region.status === 'unconfirmed')
@@ -137,9 +140,17 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState, re
         || ((event.data.message.isError === true || event.data.error !== undefined) && !isBatchOutcomeError(event.data.error?.code))
         || event.data.turn !== identity.turn || event.data.step !== identity.step
         || assistant.seq !== identity.assistantSeq || call.data.callId !== identity.callId
-        || call.data.name !== 'context_compress'
+        || call.data.name !== (identity.transport === 'ptc' ? 'run_code' : 'context_compress')
         || event.data.message.source.callId !== identity.callId || event.data.message.toolCallId !== identity.callId
         || event.sourceEventSeqs?.length !== 1 || event.sourceEventSeqs[0] !== call.seq) return
+      if (identity.transport === 'ptc') {
+        let args: { code?: unknown }
+        try { args = JSON.parse(call.data.arguments) } catch (error) {
+          if (!(error instanceof SyntaxError)) throw error
+          return
+        }
+        if (typeof args.code !== 'string' || compressionProgram(args.code) === undefined) return
+      }
       const blocks = assistant.data.message.content
       const calls = blocks.filter(block => block.type === 'tool-call')
       if (calls.length !== 1 || calls[0]?.id !== identity.callId || calls[0].name !== call.data.name

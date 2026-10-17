@@ -3,7 +3,7 @@ import { createMessage, createToolResultMessage, createUserMessage, ToolCallId }
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
-import { createAgentMessage } from '../../deepseek-harness/packages/subagent/subagent/src/continuation-messages.ts'
+import { createAgentMessage } from 'acp-harness/packages/subagent/subagent/src/continuation-messages.ts'
 import { literalClue, protectionGroups, safeSplitRanges } from '../src/boundaries.ts'
 import { protectedNodes, type SurfaceCapture } from '../src/protection.ts'
 import { preflightRegions } from '../src/regions.ts'

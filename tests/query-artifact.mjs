@@ -5,17 +5,20 @@ import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
-const harness = fileURLToPath(new URL('../../deepseek-harness/', import.meta.url))
-const archive = resolve(process.argv[2] ?? join(harness, 'dist/daily-driver/deepseek-ai-dsh-session-query-0.1.7-rc.2-fork4.tgz'))
+const harness = fileURLToPath(new URL('../', import.meta.url))
+assert.ok(process.argv[2], 'Pass the local Query fork tarball')
+const archive = resolve(process.argv[2])
 await stat(archive)
 // mkdtemp exclusively allocates a new owned path; existing peer links are never changed.
-const root = await mkdtemp(join(harness, 'packages/session-query/session-query/.acceptance-artifact-'))
+const root = await mkdtemp(join(harness, '.scratch/query-artifact-'))
 let ctx
 try {
   execFileSync('tar', ['-xzf', archive, '-C', root], { stdio: 'pipe' })
   const directory = join(root, 'package')
   const manifest = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'))
-  const entry = join(directory, manifest.main)
+  const installed = createRequire(join(harness, 'package.json'))
+  const entry = installed.resolve('@deepseek-ai/dsh-session-query')
+  assert.equal(await readFile(entry, 'utf8'), await readFile(join(directory, manifest.main), 'utf8'), 'installed Query must be the supplied archive')
   const require = createRequire(entry)
   const peers = []
   for (const name of ['@deepseek-ai/cordis', '@deepseek-ai/dsh-session']) {
@@ -74,7 +77,7 @@ void result
   console.log(JSON.stringify({
     archive, package: manifest.name, version: manifest.version,
     plainNodeRootImport: 'passed', originalSessionCapture: 'passed', nodeNextConsumerTypes: 'passed',
-    peerLayout: 'existing Harness workspace peers; NOT a clean package-manager installation', peers,
+    peerLayout: 'ACP development install with local fork overrides; NOT the clean delivery installation', peers,
   }, null, 2))
 } finally {
   await ctx?.fiber.dispose()

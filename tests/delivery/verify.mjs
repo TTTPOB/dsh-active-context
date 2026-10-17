@@ -35,8 +35,8 @@ try {
   // Test-local grants are limited to these explicit exact package/runtime combinations.
   const accepted = {
     'dsh-active-context': JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version,
-    '@deepseek-ai/dsh-session-query': '0.1.7-rc.2-fork4',
-    '@deepseek-ai/dsh-session-query-sqlite': '0.1.7-rc.2-fork6',
+    '@deepseek-ai/dsh-session-query': '0.2.1-rc.1-fork1',
+    '@deepseek-ai/dsh-session-query-sqlite': '0.2.1-rc.1-fork1',
   }
   for (const [name, version] of Object.entries(accepted)) {
     const path = name.startsWith('@') ? join(resolution.entries.find(item => item.name === name && item.scope === 'installation').packageDir, 'package.json') : join(profile, 'node_modules', name, 'package.json')
@@ -86,7 +86,7 @@ try {
   const schema = (await hostImport('@deepseek-ai/schemastery')).default
   assert.deepEqual(schema.resolve({}, acp.Config, {})[0].acp.pressureRoutes, [])
   assert.throws(() => schema.resolve({ acp: { maxRegions: 1 } }, acp.Config, {}))
-  // Cordis 4.0.4 publishes FiberState as an erased const enum; ACTIVE is 2.
+  // Cordis 4.0.5 publishes FiberState as an erased const enum; ACTIVE is 2.
   for (const row of ctx.loader.entries()) if (!row.disabled) assert.equal(row.fiber?.state, 2, 'active Loader row ' + row.options.name)
   let input
   let index = 0

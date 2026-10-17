@@ -13,7 +13,7 @@
 
 采用薄 BasicCompactionEngine 子类替换唯一 compaction provider。预写摘要只覆盖 summarize 扩展点，复用原生 framing、缩水判断、计量与 start/summary/replacement/end 事务；普通自动压缩、pruner 和 overflow 委托基类。作者 provider/model 来自本次正常落档 assistant，不增加辅助模型请求或 usage。
 
-模型必须在独立 assistant 响应直接调用一次 context_compress，使用 native/both，可带 reasoning，不带任务正文、其他调用或 run_code/PTC。guard 只拒绝压缩调用，混合批次的普通兄弟工具仍按原生规则执行；注册随插件 effect 撤销。
+模型必须在独立 assistant 响应调用一次 context_compress：native 直接调用；PTC 使用完整规范程序 `return await tools.context_compress(<JSON literal>);`。可带 reasoning，不带任务正文或其他调用。PTC 通过 root token、实际作者和深等参数验证唯一直属子调用；只有全部压缩与 root 最终成功才能清理 root pair，其他情况保留完整 pair 与最终提交事实。guard 只拒绝压缩调用，混合批次的普通兄弟工具仍按原生规则执行；注册随插件 effect 撤销。
 
 保护整个实际选区内的当前 system/developer、当前 Step、最新任务输入、承载该输入的存活 checkpoint 和所有 form:instructions。最新任务来源由配置启用；notice 不创建新任务，agent-message 仅 relay 创建任务。checkpoint 按 sourceEventSeqs 延续任务保护，直到出现更新的任务输入。
 

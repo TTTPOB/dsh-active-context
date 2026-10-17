@@ -26,7 +26,7 @@ it('recovers from mixed task text by directly retrying literal regions in a sepa
       if (rejected?.type !== 'tool/result') throw new Error('Guard rejection was not recorded')
       expect(rejected.data.message.isError).toBe(true)
       const feedback = rejected.data.message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')
-      expect(feedback).toMatch(/independent native\/both call/i)
+      expect(feedback).toMatch(/independent native call/i)
       expect(feedback).toMatch(/separate assistant response/i)
       expect(feedback).toMatch(/two.*literal text endpoints.*range/i)
       expect(feedback).toMatch(/optional role/i)

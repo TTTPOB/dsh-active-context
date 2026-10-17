@@ -106,6 +106,8 @@ it('states endpoint direction and full-node selection verbatim in both instructi
   const f = await exampleFixture(history(exampleJson()[0]))
   try {
     expect(ACP_INSTRUCTIONS).toContain(orientation)
+    expect(ACP_INSTRUCTIONS).toContain('return await tools.context_compress(<JSON literal>);')
+    expect(ACP_INSTRUCTIONS).toContain('PTC partial, failed, cancelled or host-overridden root pairs are retained')
     expect(JSON.stringify(f.schema)).toContain(orientation)
     expect(ACP_INSTRUCTIONS).not.toContain('Keep complete tool-call/result pairs')
     expect(ACP_INSTRUCTIONS).toContain('automatically expands ranges outward')

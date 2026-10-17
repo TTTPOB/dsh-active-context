@@ -20,7 +20,7 @@ export interface RegionInput {
   readonly summary: string
 }
 
-/** One independently submitted native/both tool call. */
+/** One independently submitted model-authored compression batch. */
 export interface CompressInput {
   readonly regions: readonly RegionInput[]
 }
@@ -62,6 +62,7 @@ export interface ExecutionIdentity {
   readonly callId: ToolCallId
   readonly provider: string
   readonly model: string
+  readonly transport?: 'ptc'
 }
 
 /** Preflight fixes one expanded selection and its interpreted messages. */

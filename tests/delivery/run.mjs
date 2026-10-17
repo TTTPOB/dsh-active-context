@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
 const { values } = parseArgs({ options: {
-  acp: { type: 'string' }, query: { type: 'string' },
+  acp: { type: 'string' }, query: { type: 'string' }, session: { type: 'string' }, sqlite: { type: 'string' },
 } })
-for (const key of ['acp', 'query']) assert.ok(values[key], `--${key} requires a tarball path or verified Release URL`)
+for (const key of ['acp', 'query', 'session', 'sqlite']) assert.ok(values[key], `--${key} requires a tarball path or verified Release URL`)
 const source = value => value.startsWith('https://') ? value : 'file:' + resolve(value)
 const scratch = process.env.DSH_CONFIG_TEST_ROOT ?? fileURLToPath(new URL('../../.scratch/text-anchors/delivery/', import.meta.url))
 await mkdir(scratch, { recursive: true })
@@ -18,8 +18,8 @@ const host = join(root, 'installation')
 const home = join(root, 'home')
 const profile = join(home, 'profiles/web')
 const manifestPath = join(profile, 'package.json')
-const session = 'https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-0.1.7-rc.2-fork1.tgz'
-const sqlite = 'https://github.com/TTTPOB/deepseek-harness/releases/download/daily-driver-v0.1.7-rc.2-fork16/deepseek-ai-dsh-session-query-sqlite-0.1.7-rc.2-fork6.tgz'
+const session = source(values.session)
+const sqlite = source(values.sqlite)
 const put = (file, value) => writeFile(file, JSON.stringify(value, null, 2) + '\n')
 const install = cwd => execFileSync('pnpm', [
   'install', ...(cwd === host ? [] : ['--ignore-workspace']), '--config.auto-install-peers=false',
@@ -31,15 +31,15 @@ try {
   await put(join(host, 'package.json'), {
     name: 'acp-isolated-host', private: true, type: 'module',
     dependencies: {
-      '@deepseek-ai/dsh': '0.1.7-rc.2', '@deepseek-ai/cordis-plugin-group': '1.0.4',
-      '@deepseek-ai/cordis': '4.0.4', '@deepseek-ai/schemastery': '3.18.4',
+      '@deepseek-ai/dsh': '0.2.1-rc.1', '@deepseek-ai/cordis-plugin-group': '1.0.5',
+      '@deepseek-ai/cordis': '4.0.5', '@deepseek-ai/schemastery': '3.18.5',
       // Required peers of Tools, AgentLoop, Persistence and Basic belong to the Host root.
       ...Object.fromEntries([
-        'llm', 'agent', 'scope', 'sandbox', 'session', 'invariants', 'ptc-runtime',
+        'llm', 'agent', 'scope', 'sandbox', 'session', 'ptc-runtime',
         'system-prompt', 'user-approval', 'sandbox-policy', 'tools', 'session-projection',
         'session-persistence', 'commands', 'compaction', 'token-meter',
         'compaction-tool-result-pruner', 'agent-loop',
-      ].map(name => ['@deepseek-ai/dsh-' + name, '0.1.7-rc.2'])),
+      ].map(name => ['@deepseek-ai/dsh-' + name, '0.2.1-rc.1'])),
     },
   })
   await put(join(host, 'pnpm-workspace.yaml'), {

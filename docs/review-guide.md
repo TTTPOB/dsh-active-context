@@ -12,11 +12,11 @@
 
 ## 提交、结算与清理
 
-一条独立 native/both 调用可提交多个不重叠区间。批数、参数结构、总摘要预算和调用身份先全局校验；各 region 独立验证。端点／保护／工具配对错误只使该项失败，扩展后共享节点的所有参与项都失败，相邻但不共享节点的项可独立提交。其余项从尾到头提交，可归因的选区或原生缩水失败继续，取消、未知故障或不确定提交停止余项；已提交项不回滚。部分成功、取消或 replacement 写入后的错误保留实际提交事实，结果按输入索引关联，并列出实际尝试顺序。
+一条独立 native 或规范 PTC 调用可提交多个不重叠区间。批数、参数结构、总摘要预算和调用身份先全局校验；各 region 独立验证。端点／保护／工具配对错误只使该项失败，扩展后共享节点的所有参与项都失败，相邻但不共享节点的项可独立提交。其余项从尾到头提交，可归因的选区或原生缩水失败继续，取消、未知故障或不确定提交停止余项；已提交项不回滚。部分成功、取消或 replacement 写入后的错误保留实际提交事实，结果按输入索引关联，并列出实际尝试顺序。
 
-保护当前 system/developer、当前 Step、全部存活 instructions，以及最近任务输入和承载它的存活 checkpoint。准入 guard 根据正常落档的 assistant 身份及实际 tool-call blocks 校验独立调用，混合批次、重复调用、缺失身份和 PTC 在压缩事务前拒绝；普通兄弟工具仍按原生调度执行。
+保护当前 system/developer、当前 Step、全部存活 instructions，以及最近任务输入和承载它的存活 checkpoint。准入 guard 根据正常落档的 assistant 身份及实际 tool-call blocks 校验独立调用，混合批次、重复调用、缺失身份和非规范 PTC 在压缩事务前拒绝；普通兄弟工具仍按原生调度执行。
 
-工具 body 完成不等于最终成功。最终落档结果正常，至少一个已确认提交且无不确定项，调用与结果仍是精确相邻存活节点时，下一 Step 才清理工具对，支持部分成功。清理前重启丢弃内存候选、留下原消息；已经写入的替换由 Log 回放。短状态记录完整保留各项原 range/status/input_index/expanded、失败或未执行原因及原调用／返回 Log seq，不重复 summary。完整记录超预算保留原工具对，不截断端点。原作者、参数、结果及事务始终保留在 Log。
+工具 body 完成不等于最终成功。最终落档结果正常，至少一个已确认提交且无不确定项，调用与结果仍是精确相邻存活节点时，下一 Step 才清理工具对；native 支持部分成功，PTC 仅支持全部成功且 root 最终成功。清理前重启丢弃内存候选、留下原消息；已经写入的替换由 Log 回放。短状态记录完整保留各项原 range/status/input_index/expanded、失败或未执行原因及原调用／返回 Log seq，不重复 summary。完整记录超预算保留原工具对，不截断端点。原作者、参数、结果及事务始终保留在 Log。
 
 ## 压力提醒与原生兜底
 
@@ -26,11 +26,12 @@
 
 ## 源码验证入口
 
-ACP 与 Harness 源码位于同一父目录，Harness 提供 Vitest、TypeScript、测试依赖及 vendor 声明产物。在 ACP 根执行：
+通过 `DSH_SOURCE_ROOT` 选择已安装依赖的 rc.1 Session／Query fork checkout（省略时使用并列 `deepseek-harness`）。ACP 自身开发依赖提供 Loader／Include 的发布声明，Harness 提供 Vitest、TypeScript 和其余源码测试依赖。在 ACP 根执行：
 
 ```sh
-node tests/typecheck.mjs
-node tests/run.mjs boundaries text-ranges endpoint-diagnostics region-conflicts adjacent-regions partial-regions regions protection provider compaction-loop compaction-failures recorded-replay guard hide reminder
+export DSH_SOURCE_ROOT=/absolute/path/to/rc1-session-fork
+NODE_OPTIONS=--max-old-space-size=3072 node tests/typecheck.mjs
+NODE_OPTIONS=--max-old-space-size=3072 node tests/run.mjs
 ```
 
 [严格类型检查](<../tests/typecheck.mjs>)检查 ACP 源码及测试，不过滤诊断；[测试入口](<../tests/run.mjs>)使用源码路径别名和既有 Loader、Loop、delivery helper。测试临时目录自动清理，源码验证不替代[打包后隔离安装](<delivery.md>)。

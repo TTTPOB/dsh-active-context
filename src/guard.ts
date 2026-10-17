@@ -5,6 +5,7 @@ import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type { AcpConfig, AcpState, ExecutionIdentity, GuardHooks } from './types.ts'
 import { renderBatchFacts } from './regions.ts'
+import { installPtc, PTC_DENIAL } from './ptc.ts'
 
 interface StepAuthor {
   readonly turn: number
@@ -47,31 +48,29 @@ export function installGuard(ctx: Context, config: AcpConfig, state: AcpState): 
     clear(authors.get(session))
     authors.delete(session)
   })
-  ctx.tools.guard(exec => {
-    if (exec.name !== 'context_compress') return undefined
-    const deny = 'ACP: context_compress requires one independent native/both call, no task text or siblings. Retry directly in a separate assistant response, not through run_code/PTC; select each region with two distinctive literal text endpoints in range (optional role) and a non-empty summary.'
-    if (exec.agent === undefined || exec.parent !== undefined || exec.rootCallId !== exec.callId) return deny
+  const authorize = (exec: Readonly<ToolExecution>): ExecutionIdentity | undefined => {
+    if (exec.agent === undefined || exec.parent !== undefined || exec.rootCallId !== exec.callId) return undefined
     const author = authors.get(exec.agent.session)
     const assistant = author?.assistant
     if (author === undefined || assistant === undefined
-      || !exec.agent.session.surface.nodes.includes(assistant.seq)) return deny
+      || !exec.agent.session.surface.nodes.includes(assistant.seq)) return undefined
     const { message } = assistant.data
     const calls = message.content.filter(block => block.type === 'tool-call')
-    // Count the original blocks, not a map keyed by provider-issued call ids.
     if (calls.length !== 1 || calls[0]?.id !== exec.callId || calls[0].name !== exec.name
       || message.content.some(block => block.type !== 'tool-call' && block.type !== 'reasoning'
         && !(block.type === 'text' && block.text.trim() === ''))
-      || message.source.provider.trim() === '' || message.source.model.trim() === '') return deny
-    if ([...author.executions].some(previous => previous.callId === exec.callId)) return deny
-    const identity: ExecutionIdentity = {
-      sessionId: exec.agent.session.id,
-      turn: author.turn,
-      step: author.step,
-      assistantSeq: assistant.seq,
-      callId: exec.callId,
-      provider: message.source.provider,
-      model: message.source.model,
-    }
+      || message.source.provider.trim() === '' || message.source.model.trim() === '') return undefined
+    return { sessionId: exec.agent.session.id, turn: author.turn, step: author.step,
+      assistantSeq: assistant.seq, callId: exec.callId, provider: message.source.provider, model: message.source.model }
+  }
+  const admitPtc = installPtc(ctx, config, state, authorize)
+  ctx.tools.guard(exec => {
+    if (exec.name !== 'context_compress') return undefined
+    const deny = 'ACP: context_compress requires one independent native call, no task text or siblings. Retry directly in a separate assistant response; select each region with two distinctive literal text endpoints in range (optional role) and a non-empty summary. For PTC, ' + PTC_DENIAL
+    const identity = exec.parent === undefined ? authorize(exec) : admitPtc(exec)
+    if (identity === undefined || exec.agent === undefined) return deny
+    const author = authors.get(exec.agent.session)
+    if (author === undefined || [...author.executions].some(previous => previous.callId === exec.callId)) return deny
     state.identities.set(exec, identity)
     author.executions.add(exec)
     liveExecutions.add(exec)

@@ -3,6 +3,7 @@ import type { Message } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { SurfaceCapture } from './protection.ts'
 import type { TextEndpoint } from './types.ts'
+import { compressionProgram } from './ptc.ts'
 
 /** Classify owned displays by source or the exact logged tool call, never by body text. */
 export function isEndpointCandidate(surface: SurfaceCapture, index: number): boolean {
@@ -14,7 +15,16 @@ export function isEndpointCandidate(surface: SurfaceCapture, index: number): boo
   if (message.role !== 'tool' || event?.type !== 'tool/result') return true
   const call = surface.log.findLast(candidate => candidate.seq < event.seq && candidate.type === 'tool/call'
     && candidate.data.turn === event.data.turn && candidate.data.step === event.data.step && candidate.data.callId === message.toolCallId)
-  return call?.type !== 'tool/call' || call.data.name !== 'context_compress'
+  if (call?.type !== 'tool/call') return true
+  if (call.data.name === 'context_compress') return false
+  if (call.data.name !== 'run_code') return true
+  try {
+    const args = JSON.parse(call.data.arguments)
+    return typeof args?.code !== 'string' || compressionProgram(args.code) === undefined
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error
+    return true
+  }
 }
 
 /** Literal substring within one eligible derived text block; repeated hits in a node count once. */

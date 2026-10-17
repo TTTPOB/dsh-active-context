@@ -42,7 +42,7 @@ function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, 
     + 'The map does not prescribe compression ranges. B labels and protected clues identify boundaries, not selectable endpoints; choose actual text + optional role from messages inside a section. '
     + 'Tool-span completion can reach protection and reject a range; this current map does not replace validation. '
     + 'New input/current entering Step is not in this pre-step Surface map and cannot be selected. Current executing Step is always a hard rejection. '
-    + 'Submit one standalone native/both call, with no task prose or other tools.'
+    + 'Submit one standalone native call, or one PTC run_code with code exactly return await tools.context_compress(<JSON literal>);. No other statements, task prose or tools.'
   let message = createUserMessage({
     content: [{ type: 'text', text: core }],
     source: { kind: 'acp-pressure', form: 'notice', summary: boundContextSummary('High context pressure; summarize completed history.') },

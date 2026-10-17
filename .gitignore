@@ -2,3 +2,5 @@ node_modules/
 dist/
 *.tsbuildinfo
 .scratch/
+# Local tarball overrides for unpublished fork validation.
+pnpm-workspace.yaml

@@ -11,7 +11,7 @@ const create = async (options: Parameters<typeof fixture>[0] = {}) => {
 const results = (f: Awaited<ReturnType<typeof fixture>>) => f.agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
 
 describe('independent compression admission', () => {
-  for (const mode of ['native', 'both'] as const) it(`accepts one ${mode} call and records the appended author route`, async () => {
+  for (const mode of ['native'] as const) it(`accepts one ${mode} call and records the appended author route`, async () => {
     const f = await create({ mode, cleanup: false })
     const pair = await f.manual([{ type: 'reasoning', text: 'select old context' }, call()])
     expect(pair.result.isError).toBe(false)

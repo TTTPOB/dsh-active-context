@@ -41,10 +41,10 @@ export const HISTORY = [
 ] as const
 
 /** Mounts production services; callers own optional plugins, adapter script, and teardown. */
-export async function createLoopFixture(replies: readonly ScriptedReply[], beforeLoop?: (ctx: Context) => Promise<void>) {
+export async function createLoopFixture(replies: readonly ScriptedReply[], beforeLoop?: (ctx: Context) => Promise<void>, mode: 'native' | 'ptc' = 'native') {
   const ctx = new Context()
   try {
-    await mountAgentLoopTestDependencies(ctx)
+    await mountAgentLoopTestDependencies(ctx, { tools: { mode } })
     const adapter = new ScriptedAdapter(replies)
     ctx.llm.registerAdapter(['acceptance'], adapter)
     await beforeLoop?.(ctx)

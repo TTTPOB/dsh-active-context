@@ -56,7 +56,7 @@ class Scripted extends LlmAdapter {
 
 export async function fixture(options: {
   replies?: readonly (readonly ContentBlock[])[]
-  mode?: 'native' | 'both' | 'ptc'
+  mode?: 'native' | 'ptc'
   body?: (exec: ToolRunContext, state: AcpState) => void
   config?: Partial<AcpConfig>
   cleanup?: boolean
