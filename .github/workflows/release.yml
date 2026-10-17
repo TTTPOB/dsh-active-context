@@ -62,7 +62,7 @@ jobs:
           SQLITE_URL="${SQLITE_URL:-$(node -p 'require("./.github/release-dependencies.json").dependencies["@deepseek-ai/dsh-session-query-sqlite"].source')}"
           test -n "$SESSION_URL" && test -n "$QUERY_URL" && test -n "$SQLITE_URL"
           printf 'SESSION_URL=%s\nQUERY_URL=%s\nSQLITE_URL=%s\n' "$SESSION_URL" "$QUERY_URL" "$SQLITE_URL" >> "$GITHUB_ENV"
-          pnpm --config.verify-deps-before-run=false install --frozen-lockfile --ignore-workspace --config.auto-install-peers=false --config.enable-global-virtual-store=false
+          pnpm --config.verify-deps-before-run=false install --frozen-lockfile --config.auto-install-peers=false --config.enable-global-virtual-store=false
       - name: Build and pack the plugin
         run: pnpm --config.verify-deps-before-run=false pack --pack-destination dist/release
       - name: Verify clean profile installation and production Loader behavior
