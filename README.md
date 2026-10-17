@@ -37,7 +37,7 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 
 每个已确认提交的 region 在完整结果与短状态记录中均保留 `source_session_id`、`source_start_seq`、`source_end_seq`：这是自动补齐工具配对后实际压缩的首末 Surface 节点在原会话 Log 中的 seq，包含两端，不是压缩操作的 seq。中间 Log 可能夹有生命周期或其他不在该选区的事件。失败、未执行或未确认提交的项不附这些字段；`readback` 仍表示压缩事务本身，`log` 表示本次调用／返回记录。
 
-短状态记录使用最近已落档 request/header 匹配 `pressureRoutes`，并读取独立提醒器的同一份“提醒已落档、尚未复位”状态，而不只按压缩前的用量判断。R 为回落线（`resetBelowTokens`），S 为提醒线（`nudgeAtTokens`）；反馈按扣除旧工具对、计入反馈正文后的预估用量选择：
+短状态记录使用最近已落档 request/header 匹配精确 `pressureRoutes` 或 `pressureDefault`，并读取独立提醒器的同一份“提醒已落档、尚未复位”状态，而不只按压缩前的用量判断。R 为回落线（`resetBelowTokens`），S 为提醒线（`nudgeAtTokens`）；反馈按扣除旧工具对、计入反馈正文后的预估用量选择：
 
 | 压缩后用量 | 没有未复位提醒 | 已提醒、尚未复位 |
 |---|---|---|
@@ -61,13 +61,29 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 | `confirmationMaxTokens` / `confirmationMaxBytes` | 1200 / 8000 | 完整状态记录含消息包装的上限；超出时保留原工具对 |
 | `reminderMaxTokens` / `reminderMaxBytes` | 1200 / 6000 | 整条压力提醒及消息包装预算 |
 | `taskSourceKinds` | `user`, `agent-message`, `goal`, `schedule` | 最新任务来源；notice 不作为任务，agent-message 只认 relay |
-| `pressureRoutes` | `[]` | 仅显式路由启用提前提醒 |
+| `pressureDefault` | 未配置 | 未列出模型的默认提醒／复位比例，直接相对最大 `contextWindow` |
+| `pressureRoutes` | `[]` | 精确 provider/model 的绝对 token 阈值，优先于默认比例 |
 
 提醒使用英文，包含约数 T、原生自动压缩阈值 H、行动建议和最简保护边界地图。地图通过与压缩共用的 Query 采样及保护机制读取当前活 Surface；按位置列出 current_step、instructions（system/developer 或 form:instructions）和 latest_task_input/checkpoint，多原因按此优先级分类。连续同类保护节点合组，B1/B2 等只是本张地图标签，附实际 role 与采样时唯一的短 literal；重复或 relay 包装优先选择正文，更长 prefix 或 middle/end；无唯一短文本时明确标注。
 
 每个 range 位于保护边界之间的同一 section，段内可任意细选，地图不规定压缩范围。B 标签和保护线索用于辨认不可选边界；端点从段内实际消息原文选择。pre-step 尚未落档的新输入／current entering Step 不在地图且不可选；工具跨度自动扩展后仍可能触保护，实际校验为准。
 
-整条提醒及包装沿用 reminderMaxTokens/Bytes。预算不足时优先保留任务承载组，按剩余空间列出其他组；未列部分明确给出组数／节点数，不能据此认定区段无保护。核心行动文字及遗漏说明也放不下时，生成失败并报告实际计量与上限，不消耗提醒资格。每个启用路由指定 `provider`、`model`、`nudgeAtTokens`（S）和 `resetBelowTokens`（R），满足 `0 <= R < S < H`；H 是原生自动压缩线。独立提前提醒在每段持续高压只发送一次，实时计量低于 R 才复位；恢复时保留已落档提醒状态。提醒不额外发起模型请求，不改变原生兜底。
+整条提醒及包装沿用 reminderMaxTokens/Bytes。预算不足时优先保留任务承载组，按剩余空间列出其他组；未列部分明确给出组数／节点数，不能据此认定区段无保护。核心行动文字及遗漏说明也放不下时，生成失败并报告实际计量与上限，不消耗提醒资格。`pressureDefault` 在加载时要求 `0 <= resetBelowRatio < nudgeAtRatio < 1`；S = floor(contextWindow × nudgeAtRatio)，R = floor(contextWindow × resetBelowRatio)。比例直接相对模型最大上下文，不相对 H 换算。`pressureRoutes` 每项仍指定 `provider`、`model`、绝对 `nudgeAtTokens`（S）和 `resetBelowTokens`（R），精确匹配优先。运行时要求 `R < S < H`；H 是原生自动压缩线。容量未知或阈值不成立时，按 provider/model 警告一次并跳过提醒；阈值警告列出 C、S、R、H。未配默认值时，仅精确 routes 启用提醒。独立提前提醒在每段持续高压只发送一次，实时计量低于 R 才复位；恢复时保留已落档提醒状态。提醒不额外发起模型请求，不改变原生兜底。
+
+配置示例（ACP 插件行的完整 `config`，原 Basic 行另行禁用）：
+
+```yaml
+acp:
+  pressureDefault:
+    nudgeAtRatio: 0.70
+    resetBelowRatio: 0.65
+  pressureRoutes: []
+basic:
+  thresholdRatio: 0.85
+  headroomTokens: 20000
+```
+
+H 还受输出预留和 Basic modelPolicies 影响；使用者需自行选择低于 H 的提醒比例，详见[压力提醒](<docs/adr/0002-pressure-notices.md>)。
 
 ## 开发文档
 

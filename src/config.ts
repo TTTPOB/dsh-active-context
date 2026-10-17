@@ -27,6 +27,10 @@ export const AcpConfigSchema: z<Partial<SchemaAcpConfig>, SchemaAcpConfig> = z.o
   reminderMaxTokens: positive().default(1200),
   reminderMaxBytes: positive().default(6000),
   taskSourceKinds: z.array(z.string()).default(['user', 'agent-message', 'goal', 'schedule']),
+  pressureDefault: z.union([z.object({
+    nudgeAtRatio: z.number().min(0).max(1).required(),
+    resetBelowRatio: z.number().min(0).max(1).required(),
+  })]),
   pressureRoutes: z.array(route).default([]),
 })
 
@@ -39,6 +43,11 @@ export type Config = PluginConfig
 
 /** Reject self-contained threshold errors before registering any provider or hook. */
 export function validateAcpConfig(config: AcpConfig): void {
+  const defaults = config.pressureDefault
+  if (defaults !== undefined && !(0 <= defaults.resetBelowRatio
+    && defaults.resetBelowRatio < defaults.nudgeAtRatio && defaults.nudgeAtRatio < 1)) {
+    throw new Error('ACP: pressureDefault requires 0 <= resetBelowRatio < nudgeAtRatio < 1')
+  }
   const routes = new Set<string>()
   for (const route of config.pressureRoutes) {
     const key = `${route.provider}/${route.model}`

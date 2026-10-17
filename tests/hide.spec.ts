@@ -140,7 +140,7 @@ describe('successful compression tool-pair maintenance', () => {
       if (type === 'user/message') throw new Error('replacement append rejected')
       return Reflect.apply(original, session, [type, data, ...opts])
     })
-    expect(() => f.hide.cleanupBeforeNative(frame(f.agent))).toThrow('replacement append rejected')
+    await expect(f.hide.cleanupBeforeNative(frame(f.agent))).rejects.toThrow('replacement append rejected')
     spy.mockRestore()
     expect(session.snapshotEvents().at(-1)?.type).toBe('compaction/prune')
     expect(session.surface.nodes).toEqual([pair.assistant.seq, pair.resultEvent.seq])
@@ -157,7 +157,7 @@ describe('successful compression tool-pair maintenance', () => {
   it('retains the original pair without either append when the complete confirmation cannot fit', async () => {
     const f = await create({ config: { confirmationMaxBytes: 1 } })
     const pair = await f.manual()
-    expect(() => f.hide.cleanupBeforeNative(frame(f.agent))).not.toThrow()
+    await expect(f.hide.cleanupBeforeNative(frame(f.agent))).resolves.toBeUndefined()
     expect(f.agent.session.surface.nodes).toEqual([pair.assistant.seq, pair.resultEvent.seq])
     expect(f.agent.session.snapshotEvents().some(event => event.type === 'compaction/prune')).toBe(false)
   })

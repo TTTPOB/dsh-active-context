@@ -32,7 +32,7 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
-function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate, session: Session, reminder: Pick<ReminderHooks, 'hasPendingReminder'>): UserMessage | undefined {
+async function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate, session: Session, reminder: Pick<ReminderHooks, 'hasPendingReminder'>, signal: AbortSignal): Promise<UserMessage | undefined> {
   const retryable = candidate.facts.regions.filter(fact => fact.status === 'failed' || fact.status === 'not_attempted').map(fact => fact.inputIndex)
   const record = {
     status: candidate.facts.status === 'batch_success' ? 'compressed' : 'partial',
@@ -50,7 +50,20 @@ function confirmation(ctx: Context, config: AcpConfig, candidate: HideCandidate,
     source: { kind: 'acp-maintenance', form: 'notice', summary: boundContextSummary('Context compression status; original call and result archived.') },
   })
   const header = session.requestHeader()
-  const route = config.pressureRoutes.find(route => route.provider === header?.config.provider && route.model === header.config.model)
+  let route = config.pressureRoutes.find(route => route.provider === header?.config.provider && route.model === header.config.model)
+  if (route === undefined && header !== undefined && config.pressureDefault !== undefined) {
+    let capacity: number | undefined
+    try {
+      capacity = (await ctx.llm.resolveModelInfo(header.config.provider, header.config.model, signal)).context?.contextWindow
+    } catch {
+      // Omit feedback when capacity is unavailable; the reminder owns the diagnostic.
+    }
+    if (capacity !== undefined) route = {
+      provider: header.config.provider, model: header.config.model,
+      nudgeAtTokens: Math.floor(capacity * config.pressureDefault.nudgeAtRatio),
+      resetBelowTokens: Math.floor(capacity * config.pressureDefault.resetBelowRatio),
+    }
+  }
   if (route !== undefined) {
     const measurement = ctx.tokenMeter.measure(session)
     const removedTokens = measurement.nodes.filter(node => node.seq === candidate.assistantSeq || node.seq === candidate.resultSeq)
@@ -181,7 +194,7 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState, re
   })
 
   return {
-    cleanupBeforeNative(frame) {
+    async cleanupBeforeNative(frame) {
       const pair = pairs.get(frame.agent)
       if (pair === undefined) return
       const { candidate, step, assistant, result } = pair
@@ -197,8 +210,8 @@ export function installHide(ctx: Context, config: AcpConfig, state: AcpState, re
       const assistantMessage = session.deriveEventMessage(assistant)
       const resultMessage = session.deriveEventMessage(result)
       if (assistantMessage !== assistant.data.message || resultMessage !== result.data.message) return
-      const message = confirmation(ctx, config, candidate, session, reminder)
-      if (message === undefined) return
+      const message = await confirmation(ctx, config, candidate, session, reminder, frame.signal)
+      if (message === undefined || frame.signal.aborted) return
       const shadowedSeqs = [candidate.assistantSeq, candidate.resultSeq]
       const shadowedTokenCount = ctx.tokenMeter.estimateMessage(assistantMessage) + ctx.tokenMeter.estimateMessage(resultMessage)
       // No await: a prune claim is consumed only by its immediately adjacent replacement.

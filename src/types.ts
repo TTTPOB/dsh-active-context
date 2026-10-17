@@ -33,6 +33,12 @@ export interface PressureRoute {
   readonly resetBelowTokens: number
 }
 
+/** Default thresholds as fractions of the model contextWindow. */
+export interface PressureDefault {
+  readonly nudgeAtRatio: number
+  readonly resetBelowRatio: number
+}
+
 /** ACP settings, deliberately separate from the native Basic settings. */
 export interface AcpConfig {
   readonly maxRegions: number
@@ -44,6 +50,7 @@ export interface AcpConfig {
   readonly reminderMaxTokens: number
   readonly reminderMaxBytes: number
   readonly taskSourceKinds: readonly string[]
+  readonly pressureDefault?: PressureDefault
   readonly pressureRoutes: readonly PressureRoute[]
 }
 

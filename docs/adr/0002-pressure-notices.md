@@ -8,13 +8,13 @@
 
 提醒以 user-role 维护消息正常落档，source.kind 为 acp-pressure、form 为 notice，并带有界 source.summary。英文正文给约数 T、原生自动压缩阈值 H、简短行动和当前保护边界地图。地图与压缩共用 Query capture 及保护函数；pre-step 使用真实 turn/step 位置，已完成的前 Step 不冒充当前执行 Step，不构造 assistant/call 身份。尚未落档的新输入／current entering Step 明确不在地图且不可选。计量继续使用 token-meter 的 usage baseline 与 estimated delta；baseline/delta 数字不加入提醒正文，不新增日志系统。
 
-pressureRoutes 默认空，仅显式 provider/model 路由启用。每项配置提醒线 S（nudgeAtTokens）和较低复位线 R（resetBelowTokens），满足 0 <= R < S < H。H 取 Basic 对应路由策略：
+pressureDefault 可选，配置 nudgeAtRatio 与 resetBelowRatio，加载时要求 0 <= resetBelowRatio < nudgeAtRatio < 1。对没有精确 route 的模型，S = floor(C × nudgeAtRatio)，R = floor(C × resetBelowRatio)，直接使用模型最大 contextWindow，不按 H 换算。pressureRoutes 默认空；每项精确 provider/model 路由以绝对 S（nudgeAtTokens）和 R（resetBelowTokens）覆盖默认比例。未配置 pressureDefault 时，未列出模型保持禁用。运行时要求 R < S < H。H 取 Basic 对应路由策略：
 
 ```text
 H = floor(min(C × thresholdRatio, C − O − headroomTokens))
 ```
 
-C 为模型上下文容量；O 取工作请求 maxTokens 或 adapter 默认输出，两者未声明时为 0。路由取最近已落档 request/header，模型容量通过 llm.resolveModelInfo 查询。静态配置错误在加载时拒绝；容量未知或动态 R/S/H 不合法时诊断一次并跳过该路由提醒，原生处理继续。
+C 为模型上下文容量；O 取工作请求 maxTokens 或 adapter 默认输出，两者未声明时为 0。路由取最近已落档 request/header，模型容量通过 llm.resolveModelInfo 查询。静态配置错误在加载时拒绝；容量未知或动态 R/S/H 不合法时，按 provider/model 诊断一次并跳过该路由提醒，原生处理继续。阈值诊断包含 C、S、R、H；配置示例见 [README](<../../README.md#配置与运行条件>)。
 
 独立提前提醒在每段持续高压只发送一次，实际 user/message 落档才消耗提醒资格。实时 T < R 后复位；新 Turn、任务或路由延续 session-local 状态。恢复时当前低于 R 直接复位，否则从原始 Log 一次扫描已落档提醒；正文被压缩不影响恢复。正常步骤使用内存状态。压缩后仍高压的反馈由[工具对替换记录](<0001-active-compaction-submission.md#最终结算与工具对清理>)承担；记录读取同一份 episode 区分主动压缩和未完成降压，不重置此 episode，也不另发提前提醒。
 

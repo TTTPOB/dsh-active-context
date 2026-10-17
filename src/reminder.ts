@@ -81,8 +81,8 @@ function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, 
 
 /**
  * Install commit observation and return the composer's post-native hook.
- * Empty pressureRoutes explicitly disables early notices, not native compaction.
- * Unlisted routes are not enabled. Missing capacity and invalid dynamic H are
+ * Exact routes override pressureDefault ratios of the maximum contextWindow.
+ * Without either setting, early notices are disabled. Missing capacity and invalid dynamic H are
  * diagnosed once per route; native handling and the admitted decision survive.
  * The map explicitly counts omitted groups; an over-budget core throws without consuming the episode.
  * @param ctx - Plugin effect context with the production meter and LLM runtime.
@@ -119,18 +119,20 @@ export function installReminder(ctx: Context, config: AcpConfig, basic: Reminder
   return {
     hasPendingReminder: session => episodeFor(session).reminded,
     async noticeAfterNative(frame, decision) {
-      if (!active || config.pressureRoutes.length === 0 || decision.kind === 'reject' || frame.signal.aborted) return decision
+      if (!active || (config.pressureRoutes.length === 0 && config.pressureDefault === undefined)
+        || decision.kind === 'reject' || frame.signal.aborted) return decision
       // Match Loop/model-selection suppression: a notice must not wake a skipped step.
       if (decision.messages.length === 0 && (frame.step === 1 || frame.messages.length > 0)) return decision
       const session = frame.agent.session
       const header = session.requestHeader()
       if (header === undefined) return decision
       const route = config.pressureRoutes.find(route => route.provider === header.config.provider && route.model === header.config.model)
-      if (route === undefined) return decision
-      const key = `${route.provider}/${route.model}`
+      if (route === undefined && config.pressureDefault === undefined) return decision
+      const { provider, model } = header.config
+      const key = `${provider}/${model}`
       let info
       try {
-        info = await ctx.llm.resolveModelInfo(route.provider, route.model, frame.signal)
+        info = await ctx.llm.resolveModelInfo(provider, model, frame.signal)
       } catch (error) {
         if (frame.signal.aborted || !active) return decision
         warn(key, `cannot resolve model capacity: ${error instanceof Error ? error.message : String(error)}`)
@@ -142,21 +144,23 @@ export function installReminder(ctx: Context, config: AcpConfig, basic: Reminder
         warn(key, 'model contextWindow is unknown; declare model capacity before enabling this pressure route')
         return decision
       }
-      const override = basic.modelPolicies.find(policy => policy.provider === route.provider && policy.model === route.model)
+      const nudgeAtTokens = route?.nudgeAtTokens ?? Math.floor(capacity * config.pressureDefault!.nudgeAtRatio)
+      const resetBelowTokens = route?.resetBelowTokens ?? Math.floor(capacity * config.pressureDefault!.resetBelowRatio)
+      const override = basic.modelPolicies.find(policy => policy.provider === provider && policy.model === model)
       const output = header.config.maxTokens ?? info.defaultMaxTokens ?? 0
       const nativeAt = Math.floor(Math.min(capacity * (override?.thresholdRatio ?? basic.thresholdRatio),
         capacity - output - (override?.headroomTokens ?? basic.headroomTokens)))
-      if (!(route.resetBelowTokens < route.nudgeAtTokens && route.nudgeAtTokens < nativeAt)) {
-        warn(key, `requires R < S < H; got R=${route.resetBelowTokens}, S=${route.nudgeAtTokens}, H=${nativeAt} (C=${capacity}, O=${output})`)
+      if (!(resetBelowTokens < nudgeAtTokens && nudgeAtTokens < nativeAt)) {
+        warn(key, `requires R < S < H; got R=${resetBelowTokens}, S=${nudgeAtTokens}, H=${nativeAt} (C=${capacity}, O=${output})`)
         return decision
       }
       const measurement = ctx.tokenMeter.measure(session)
       let episode = episodes.get(session)
-      if (measurement.totalTokens < route.resetBelowTokens) {
+      if (measurement.totalTokens < resetBelowTokens) {
         episode = { reminded: false }
         episodes.set(session, episode)
       } else episode = episodeFor(session)
-      if (episode.reminded || measurement.totalTokens < route.nudgeAtTokens) return decision
+      if (episode.reminded || measurement.totalTokens < nudgeAtTokens) return decision
       const message = await ctx.sessionQuery.captureSession(frame.agent.id, (reader, observation) =>
         notice(ctx, config, measurement, nativeAt, sampleSurface(frame.agent, reader, observation), frame), { projectionMode: 'none' })
       episode.candidate = message.id

@@ -2,11 +2,43 @@ import { describe, expect, it, vi } from 'vitest'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import { createUserMessage, ToolCallId, LlmError, CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { AcpConfigSchema, validateAcpConfig } from '../src/config.ts'
 import { configFor, largeTask, notices, reminderFixture, replaceHistory } from './reminder-fixtures/fixture.ts'
 
 const body = (message: { content: readonly { type: string; text?: string }[] }) => message.content.map(block => block.text ?? '').join('\n')
 
 describe('post-native thresholds and complete pressure notice budgets', () => {
+  it('uses contextWindow ratios for an unlisted model', async () => {
+    const fixture = await reminderFixture(configFor({
+      pressureRoutes: [], pressureDefault: { nudgeAtRatio: 0.01, resetBelowRatio: 0.002 },
+    }))
+    try {
+      await fixture.run(largeTask)
+      await fixture.run()
+      expect(notices(fixture.agent.session)).toHaveLength(1)
+    } finally { await fixture.ctx.fiber.dispose() }
+  })
+
+  it('prefers an exact absolute route over the default ratios', async () => {
+    const fixture = await reminderFixture(configFor({
+      pressureDefault: { nudgeAtRatio: 0.01, resetBelowRatio: 0.002 },
+      pressureRoutes: [{ provider: 'reminder', model: 'working', nudgeAtTokens: 70000, resetBelowTokens: 60000 }],
+    }))
+    try {
+      await fixture.run(largeTask)
+      await fixture.run()
+      expect(notices(fixture.agent.session)).toHaveLength(0)
+    } finally { await fixture.ctx.fiber.dispose() }
+  })
+
+  it('rejects default reset ratios at or above the nudge ratio at load', () => {
+    for (const resetBelowRatio of [0.7, 0.8]) {
+      expect(() => validateAcpConfig(AcpConfigSchema({
+        pressureDefault: { nudgeAtRatio: 0.7, resetBelowRatio },
+      }))).toThrow('0 <= resetBelowRatio < nudgeAtRatio < 1')
+    }
+  })
+
   it('maps the protected latest task carried by a real native overflow checkpoint', async () => {
     const route = { provider: 'reminder', model: 'working', nudgeAtTokens: 5000, resetBelowTokens: 100 }
     const fixture = await reminderFixture(configFor({ pressureRoutes: [route] }))
