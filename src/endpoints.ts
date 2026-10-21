@@ -64,10 +64,10 @@ export function endpointMatches(surface: SurfaceCapture, endpoint: TextEndpoint)
         if (!(error instanceof SyntaxError)) throw error
         continue
       }
-      const canonical = block.name === 'run_code' && args !== null && typeof args === 'object'
-        && 'code' in args && typeof args.code === 'string' && compressionProgram(args.code) !== undefined
+      const compressionCode = block.name === 'run_code' && args !== null && typeof args === 'object'
+        && 'code' in args && typeof args.code === 'string' && args.code.includes('context_compress')
       for (const leaf of stringLeaves(args)) {
-        if (canonical && leaf.path.length === 1 && leaf.path[0] === 'code') continue
+        if (compressionCode && leaf.path.length === 1 && leaf.path[0] === 'code') continue
         if (!leaf.text.includes(endpoint.text)) continue
         matches.push({ index, role: message.role, text: leaf.text, argument: { tool: block.name, path: leaf.path } })
         return

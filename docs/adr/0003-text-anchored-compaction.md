@@ -19,7 +19,7 @@ context_compress 只操作当前调用 Session，每项包含 range 的两个 en
 
 匹配搜索当前 deriveEventMessage 的单个可作端点 text block，包含普通工具结果文本。source 归属的 acp-pressure notice/map、acp-maintenance 状态及精确 tool-call 关联的 context_compress tool/result 退出端点候选；普通 notice、其他工具结果与真正 compact-checkpoint 摘要保留。展示节点仍参与 range 内包含、工具跨度补齐、保护与冲突；不按正文猜测来源。大小写敏感 literal substring，不 trim、不做空白／Unicode 规范化、不跨 block 拼接；端点非空，空白是字面文本。reasoning、Log、附件占位和 provider wrapper 不参与匹配。role 只限制该端点候选，不过滤区间内部。
 
-正文零命中时才搜索 assistant 工具参数的 JSON 解码字符串叶值；正文优先保证已有唯一性或歧义不受参数影响。参数命中定位完整 assistant 节点，不引入第二套选区协议。所有 context_compress 参数及规范 PTC 压缩 run_code 的 code 均排除，避免重试与先前调用中复制的端点碰撞；解码与诊断细节见 [README](<../../README.md>)。
+正文零命中时才搜索 assistant 工具参数的 JSON 解码字符串叶值；正文优先保证已有唯一性或歧义不受参数影响。参数命中定位完整 assistant 节点，不引入第二套选区协议。所有 context_compress 参数及含 context_compress 字样的 run_code code 均排除，无论程序是否规范或执行成功，避免重试与先前调用中复制的端点碰撞；解码与诊断细节见 [README](<../../README.md>)。
 
 同节点内重复或多 block 命中算一个候选；不同节点重复则该 region 失败。两个端点各自扫描完整当前 Surface，不默取 first/latest 或起点后的第一个终点。缺失或歧义报告候选数量、有界匹配附近正文与实际 role，工具结果附其实际 call 名称及 read 的 offset／limit；元数据只用于诊断，不增加端点协议（详见 README）。模型据此换词；倒序也归属于该 region。其他独立合法 region 继续。
 

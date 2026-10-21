@@ -65,6 +65,21 @@ it('excludes every native compression argument and canonical PTC code without ex
   expect(endpointMatches(s, { text: 'canonical description still searchable' }).map(match => match.index)).toEqual([3])
 })
 
+it('does not anchor retries to failed noncanonical compression code', () => {
+  const endpoint = 'original historical argument'
+  const input = JSON.stringify({ regions: [{ range: [{ text: endpoint }, { text: endpoint }], summary: 'retry' }] })
+  const attempts = [
+    'return await tools.context_compress(' + input + ')',
+    'extra task text; return await tools.context_compress(' + input + ');',
+    'return await tools.context_compress("' + endpoint + String.fromCharCode(10) + 'bare newline");',
+  ]
+  const failed = attempts.map(code => [call('run_code', { code, description: 'failed compression description' })])
+  const retry = surface([[call('send_message', { message: endpoint })], ...failed])
+  expect(endpointMatches(retry, { text: endpoint }).map(match => match.index)).toEqual([0])
+  expect(endpointMatches(surface(failed), { text: endpoint })).toEqual([])
+  expect(endpointMatches(retry, { text: 'failed compression description' }).map(match => match.index)).toEqual([1, 2, 3])
+})
+
 it('reports bounded argument ambiguity clues with tool names and key paths, counting nodes once', () => {
   const s = surface([
     [call('send_message', { nested: [{ message: '前'.repeat(200) + 'shared argument' + '後'.repeat(200) }], duplicate: 'shared argument' })],
@@ -137,7 +152,7 @@ it('real Loop selects an argument-only historical assistant and completes its to
     const tool = f.ctx.tools.schemas().find(tool => tool.name === 'context_compress')!
     for (const guidance of [ACP_INSTRUCTIONS, tool.description, JSON.stringify(tool.parameters)]) {
       expect(guidance).toContain('including earlier failed/partial calls')
-      expect(guidance).toContain('canonical PTC compression run_code code')
+      expect(guidance).toContain('run_code code that calls context_compress')
     }
     expect(ACP_INSTRUCTIONS).toContain('Prefer a native context_compress call whenever directly callable')
     expect(tool.description).toContain('Prefer native context_compress when directly callable')
