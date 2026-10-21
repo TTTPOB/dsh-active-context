@@ -39,8 +39,17 @@ function resolveEndpoint(surface: SurfaceCapture, endpoint: TextEndpoint, region
   const matches = endpointMatches(surface, endpoint)
   if (matches.length === 1) return matches[0]!.index
   const bounded = (text: string) => Array.from(text).slice(0, 160).join('')
+  if (matches.length === 0) {
+    const roleMatches = endpoint.role === undefined ? [] : endpointMatches(surface, { text: endpoint.text })
+    const actualRoles = [...new Set(roleMatches.map(match => match.role))]
+    const roleMismatch = actualRoles.length === 0 ? ''
+      : ' Role mismatch: this text exists under actual_roles, not the requested role; no role was changed.'
+    throw new RegionSelectionError(
+      `ACP: region ${regionIndex} endpoint ${position} has no match: text was not found in any eligible message text block${endpoint.role === undefined ? '' : ' with the requested role'}. Tool-call arguments/code, reasoning, ACP notices/status records and context_compress results (including canonical PTC root results) are not searchable.${roleMismatch} ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, actual_roles: actualRoles.length === 0 ? undefined : actualRoles, candidate_count: 0 })}`,
+    )
+  }
   const clues = endpointClues(surface, endpoint, matches)
-  throw new RegionSelectionError(`ACP: region ${regionIndex} endpoint ${position} ${matches.length === 0 ? 'has no match' : 'is ambiguous'} in eligible current derived message text blocks (case-sensitive literal substring, no normalization; ACP pressure/status displays and context_compress results excluded as endpoints). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, candidate_count: matches.length, shown: clues.length, clues })}`)
+  throw new RegionSelectionError(`ACP: region ${regionIndex} endpoint ${position} is ambiguous in eligible current derived message text blocks (case-sensitive literal substring, no normalization; ACP pressure/status displays and context_compress results excluded as endpoints). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, candidate_count: matches.length, shown: clues.length, clues })}`)
 }
 
 /** Report bounded blocker text and reasons without introducing another selection interface. */
@@ -58,11 +67,13 @@ function assertUnprotected(
       role: message?.role ?? null,
       event_type: surface.events[index]?.type,
       reasons: protection.get(seq),
+      selection_origin: index >= originalStart && index <= originalEnd ? 'original_range' : 'tool_pair_expansion',
       text_excerpt: clue.text_excerpt,
       unique: clue.unique,
     }
   })
-  const splits = blocked.some(seq => protection.get(seq)?.includes('current_step'))
+  const currentStep = blocked.some(seq => protection.get(seq)?.includes('current_step'))
+  const splits = currentStep
     ? { ranges: [], unavailable: 'current_step is a hard rejection; no split suggestions' }
     : safeSplitRanges(surface, protection, agent.session, originalStart, originalEnd)
   const status = `${phase} rejected this region; independent regions may continue.`
@@ -73,7 +84,10 @@ function assertUnprotected(
     + ` Protected blockers: ${blocked.length}; showing ${blockers.length}. ${JSON.stringify(blockers)}`
     + carrier
     + ` Safe split ranges (within original range; write a separate summary for each; finer selections allowed): ${JSON.stringify(splits)}.`
-    + ' Each range includes both complete endpoint nodes and every node between them. Move the boundaries or split around the blockers. Tool-call/result pairs are automatically completed before protection checks. Retry with distinctive literal text endpoints, not diagnostic metadata. A null text_excerpt means the node has no text block.',
+    + ' Each range includes both complete endpoint nodes and every node between them.'
+    + (currentStep ? ' Current-Step nodes can only be compressed in a later Step; other protection rules still apply.'
+      : ' Move the boundaries or split around the blockers.')
+    + ' Tool-call/result pairs are automatically completed before protection checks. Retry with distinctive literal text endpoints, not diagnostic metadata. A null text_excerpt means the node has no text block.',
   )
 }
 
