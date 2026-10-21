@@ -7,7 +7,7 @@ import type { Session, SessionEvent, SessionId, SessionSeq } from '@deepseek-ai/
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import type { ToolExecution, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 
-/** Literal substring of one eligible current derived text block, optionally limited by actual role; ACP displays are excluded. */
+/** Literal substring of eligible message text, falling back on zero text hits to decoded assistant argument strings; optional actual role. */
 export interface TextEndpoint {
   readonly text: string
   readonly role?: Message['role']

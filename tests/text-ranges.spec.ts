@@ -81,10 +81,10 @@ it('matches only derived individual text blocks, including results, and still en
       if (event.seq === f.old[1]) return result
       return derive(event)
     })
-    for (const text of ['boundaryright', 'boundary\nright', 'reasoning-only endpoint', 'arguments-only endpoint', 'completed 1 ']) {
+    for (const text of ['boundaryright', 'boundary\nright', 'reasoning-only endpoint', 'completed 1 ']) {
       await expect(preflightRegions(f.ctx, f.agent, f.identity, f.input([region({ text })]), f.config)).resolves.toMatchObject({ facts: [expect.objectContaining({ status: 'failed', error: expect.stringMatching(/no match/) })] })
     }
-    for (const text of ['result boundary', 'left boundary']) {
+    for (const text of ['result boundary', 'left boundary', 'arguments-only endpoint']) {
       const { regions: expanded } = await preflightRegions(f.ctx, f.agent, f.identity, f.input([region({ text })]), f.config)
       const nodes = f.session.surface.nodes
       expect(expanded[0]!.seqs).toEqual(nodes.slice(nodes.indexOf(f.old[0]!), nodes.indexOf(f.old[1]!) + 1))

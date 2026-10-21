@@ -107,7 +107,8 @@ it('explains missing text and actual role mismatches without changing the select
     }
     const missing = await check({ text: 'not in any message' })
     expect(missing).toContain('text was not found in any eligible message text block')
-    expect(missing).toContain('Tool-call arguments/code, reasoning, ACP notices/status records')
+    expect(missing).toContain('Reasoning and ACP notices/status/results are not searchable')
+    expect(missing).toContain('context_compress arguments (including earlier failed/partial calls)')
     expect(missing).not.toContain('Choose more distinctive text or add role')
     expect(missing).not.toContain('Role mismatch')
     expect(diagnostics(missing)).toEqual({ text: 'not in any message', candidate_count: 0 })

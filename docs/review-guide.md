@@ -4,7 +4,7 @@
 
 ## 当前正文选区
 
-`context_compress` 在本次调用内通过 Query `captureSession` 同步读取当前调用会话的 Surface、派生消息、事件和计量。borrowed reader 只在 callback 内使用，执行目标以分离后的完整节点资料固定。每个端点分别扫描全部可作端点的当前派生 text block（精确排除 ACP 展示节点，规则见 README）；匹配按节点合并，不能截断扫描后冒充唯一。
+`context_compress` 在本次调用内通过 Query `captureSession` 同步读取当前调用会话的 Surface、派生消息、事件和计量。borrowed reader 只在 callback 内使用，执行目标以分离后的完整节点资料固定。每个端点分别扫描全部可作端点的当前派生 text block（精确排除 ACP 展示节点，规则见 README）；仅正文零命中时回退到 assistant 工具参数的解码字符串叶值，排除压缩调用参数／规范 PTC 压缩 code；匹配按节点合并，不能截断扫描后冒充唯一。
 
 两个端点包含完整节点，可以位于同一节点；顺序以 Surface 位置解释，不以内部 seq 排序。工具结果正文可以匹配；宿主自动向外补齐调用／结果，包含同一 assistant 的全部调用、穿越纯文本选区的完整工具跨度及扩展夹入的工具对，直到完整闭包。已知缺失配对范围仍参与双方冲突检查；原生切点平衡在预检确认。扩展后再检查保护和跨 region 冲突。缺失或歧义诊断使用有界原文线索与实际 role，工具候选附真实调用名称及 read 的 offset／limit（见 README），供模型重新选词。普通历史搜索仍是索引 FTS，不承担字面选区，也不以日志扫描补偿索引失败。
 

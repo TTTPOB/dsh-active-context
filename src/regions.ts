@@ -45,11 +45,11 @@ function resolveEndpoint(surface: SurfaceCapture, endpoint: TextEndpoint, region
     const roleMismatch = actualRoles.length === 0 ? ''
       : ' Role mismatch: this text exists under actual_roles, not the requested role; no role was changed.'
     throw new RegionSelectionError(
-      `ACP: region ${regionIndex} endpoint ${position} has no match: text was not found in any eligible message text block${endpoint.role === undefined ? '' : ' with the requested role'}. Tool-call arguments/code, reasoning, ACP notices/status records and context_compress results (including canonical PTC root results) are not searchable.${roleMismatch} ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, actual_roles: actualRoles.length === 0 ? undefined : actualRoles, candidate_count: 0 })}`,
+      `ACP: region ${regionIndex} endpoint ${position} has no match: text was not found in any eligible message text block or decoded assistant tool-call string value${endpoint.role === undefined ? '' : ' with the requested role'}. Never choose endpoints from any context_compress arguments (including earlier failed/partial calls) or canonical PTC compression run_code code; neither is searched. Reasoning and ACP notices/status/results are not searchable.${roleMismatch} ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, actual_roles: actualRoles.length === 0 ? undefined : actualRoles, candidate_count: 0 })}`,
     )
   }
   const clues = endpointClues(surface, endpoint, matches)
-  throw new RegionSelectionError(`ACP: region ${regionIndex} endpoint ${position} is ambiguous in eligible current derived message text blocks (case-sensitive literal substring, no normalization; ACP pressure/status displays and context_compress results excluded as endpoints). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, candidate_count: matches.length, shown: clues.length, clues })}`)
+  throw new RegionSelectionError(`ACP: region ${regionIndex} endpoint ${position} is ambiguous in eligible current derived message text blocks or decoded assistant tool-call string values (text first; case-sensitive literal substring, no normalization; ACP pressure/status displays and context_compress results excluded as endpoints). Choose more distinctive text or add role. ${JSON.stringify({ text: bounded(endpoint.text), role: endpoint.role, candidate_count: matches.length, shown: clues.length, clues })}`)
 }
 
 /** Report bounded blocker text and reasons without introducing another selection interface. */
