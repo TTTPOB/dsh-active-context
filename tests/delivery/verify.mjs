@@ -73,7 +73,7 @@ try {
     for (const peer of Object.keys(manifest.peerDependencies)) {
       const actual = ctx.pluginPackages.packageOf(peer, pathToFileURL(entry).href)
       assert.ok(actual, `${name} resolves ${peer}`)
-      assert.equal(actual.version, manifest.peerDependencies[peer], 'exact peer version ' + peer)
+      assert.equal(actual.version, release.dependencies[peer]?.version ?? manifest.peerDependencies[peer], 'exact peer version ' + peer)
       const expected = resolution.entries.find(item => item.name === peer && item.scope === 'installation')
       assert.ok(expected, 'Host/profile provides ' + peer)
       if (peer === '@deepseek-ai/schemastery') assert.equal(actual.version, expected.version)
