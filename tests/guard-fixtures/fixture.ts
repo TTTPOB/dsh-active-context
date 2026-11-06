@@ -119,7 +119,7 @@ export async function fixture(options: {
     }, { surfaceOp: 'append' })
     const block = blocks.find(item => item.type === 'tool-call') ?? call()
     const toolCall = session.append('tool/call', { turn: 1, step: 1, callId: block.id, name: block.name, arguments: block.arguments })
-    const result = await ctx.tools.execute({ callId: block.id, name: block.name, arguments: {}, agent, signal: new AbortController().signal })
+    const result = (await ctx.tools.execute({ calls: [{ ...block, arguments: '{}' }], agent, signal: new AbortController().signal })).results[0]!.result
     const resultEvent = session.append('tool/result', {
       turn: 1, step: 1,
       message: createToolResultMessage({ callId: block.id, content: result.content, isError: result.isError }),

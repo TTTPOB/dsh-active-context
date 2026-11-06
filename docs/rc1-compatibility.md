@@ -1,6 +1,6 @@
 # DSH rc.1 兼容与 API 清单
 
-ACP 0.5 使用官方 DSH `0.2.1-rc.1` 与配套 Session／Query `0.2.1-rc.1-fork1`。Cordis 为 4.0.5，Schemastery 为 3.18.5；构建工具链为 pnpm 11.28.5、TypeScript ^6.0.3。以下清单覆盖生产代码直接使用的 DSH API；测试另消费 agent-loop-testkit、JSONL、SQLite、llm-replay、session-snapshot 和 Loader／Include。
+ACP 使用官方 DSH `0.2.2-rc.1`；Session／Query 需要同基线 capture fork，通过 pnpm overrides 注入。Cordis 为 4.1.0，Schemastery 为 3.18.5；构建工具链为 pnpm 11.28.5、TypeScript ^6.0.3。以下清单覆盖生产代码直接使用的 DSH API；测试另消费 agent-loop-testkit、JSONL、SQLite、llm-replay、session-snapshot 和 Loader／Include。
 
 ## 生产 API
 
@@ -10,7 +10,7 @@ ACP 0.5 使用官方 DSH `0.2.1-rc.1` 与配套 Session／Query `0.2.1-rc.1-fork
 | `dsh-session` | `Session`、`SessionEvent`、`SessionId`、`SessionSeq`；`surface.nodes`；`seq`、`eventAt`；`deriveEventMessage`；`requestHeader`；`append`；`session/event`、`session/disposed` | 读取当前 Surface 与完整 Log。写入使用 `compaction/prune` + `user/message` replace；`sourceEventSeqs` 保留原调用、结果和来源范围。 |
 | `dsh-session` 事件 | `turn/start`、`turn/end`、`step/start`、`step/end`、`assistant/message`、`tool/call`、`tool/result`、`user/message`、`system/message`、`developer/message`、`compaction/summary`、`compaction/end` | 保护当前 Step、最新任务及其 checkpoint；确认事务的实际替换，不把 body 成功当作最终成功。其余合并扩展事件按需跳过。 |
 | `dsh-compaction` | `CompactionResult`、`CompactionId`、`toolPairingBalancedBefore`、`toolPairingBalancedAfter` | 使用上游平衡切点与事务结果，工具跨度先求闭包再检查保护／冲突。 |
-| `dsh-compaction-basic` | `BasicCompactionEngine`、`BasicCompactionConfig`、`ResolvedConfig`、`Config`；`compactRegion`、受保护 `summarize` hook、`config` | 仅替换模型主动调用的摘要来源；自动压力、pruner、overflow 与 idle maintenance 仍继承上游实现。 |
+| `dsh-compaction-basic` | `BasicCompactionEngine`、`BasicCompactionConfig`、`ResolvedConfig`、`Config`；`compactRegion`、受保护 `summarize` hook、`config` | 仅替换模型主动调用的摘要来源；自动压力、模型切换压力、pruner、overflow 与 idle maintenance 仍继承上游实现。 |
 | `dsh-agent` | `Agent.id`、`Agent.session`；`agent/pre-step`、`PreStepDecision` | 外层 awaited wrapper 在原生压力前清理已确认工具对，在原生压力后重测提醒；始终调用 `next()`。 |
 | `dsh-tools` | `defineTool`；`tools.register`、`tools.guard`；`ToolExecution`、`ToolRunContext`、`ToolExecutionResult`、`ToolExecutionFailure`；`finalizeContent`；`tools/execute`、`tools/post-execute`、`tools/result` | root／child 通过不可变 token、parent 和 rootCallId 关联；最终错误与取消保留。PTC 子调用自身不是 Surface 的 tool/result。 |
 | `dsh-system-prompt` | `systemPrompt.section({name, order, text})` | 模型指令作为持久可重建的 system prompt section 贡献；注册随插件卸载撤销。 |
@@ -23,7 +23,7 @@ ACP 0.5 使用官方 DSH `0.2.1-rc.1` 与配套 Session／Query `0.2.1-rc.1-fork
 - 上游 required runtime context 在关闭可选动态 context 时仍被组装。`runtime-context` snapshot 不是 `form:instructions`；若旧 snapshot 被压缩，上游 `RuntimeContextProjection` 根据 replacement 来源使 retained snapshot 失效，在下一请求重新提交当前 operational context。ACP 不抑制或重写 systemPrompt 组装。对应回归验证 required context 在替换后重新出现。
 - system prompt 可能以 in-history replacement 更新；ACP 保护所有存活 system／developer 与 `form:instructions` 节点，而不是只保护 seq 0。
 - `dsh-invariants` 运行时已删除，源码、交付依赖与锁定基线均不再引用它。
-- rc.1 仅有 `native`／`ptc` 呈现模式。PTC 指定的程序必须是 TypeScript function-body 格式，完整 code 恰为 `return await tools.context_compress(<JSON literal>);`（允许首尾空白）。Python／REPL 语法不在本插件的 PTC 支持范围内。
+- 0.2.2 将执行拆到 `dsh-tool-executor-native`／`dsh-tool-executor-ptc` 插件；`tools.mode` 已删除。两个 executor 都使用标准工具 pipeline，root run_code 仍触发 guard、`tools/execute`、`tools/post-execute`、`tools/result`，token／parent／rootCallId 关联不变。PTC 指定的程序必须是 TypeScript function-body 格式，完整 code 恰为 `return await tools.context_compress(<JSON literal>);`（允许首尾空白）。Python／REPL 语法不在本插件的 PTC 支持范围内。
 
 ## PTC 最终结算
 
@@ -35,4 +35,6 @@ ACP 0.5 使用官方 DSH `0.2.1-rc.1` 与配套 Session／Query `0.2.1-rc.1-fork
 
 ## 未发布 fork 的开发安装
 
-Session／Query peers 与 devDependencies 使用精确版本，不填写尚未发布的 URL。验证使用被 Git 忽略的本地 `pnpm-workspace.yaml` overrides 和 `.scratch/` lockfile，指向实际 F1 tarball；这些本机路径不进入发布 manifest 或提交。旧 rc.2 lockfile 已移除；正式 fork 资产发布并固定来源后，由 pnpm 重新生成发布 lockfile。隔离成品验证需要显式传入 ACP、Session、Query、SQLite 四个实际资产，见[交付指南](delivery.md)。
+Session／Query peers 与 devDependencies 使用官方精确版本 `0.2.2-rc.1`，不把 fork 后缀写进 peer 范围。匹配的 `0.2.2-rc.1-fork1` 资产未发布时不填写 URL；旧 fork 覆盖已删除，完整构建与验收标记为“待 fork 包”。开发时可用未提交的本地 pnpm overrides 指向实际 tarball，并由 pnpm 生成锁文件；不得把本机路径提交。发布前填写 `.github/release-dependencies.json` 的真实来源。隔离成品验证需要显式传入 ACP、Session、Query、SQLite 四个实际资产，见[交付指南](delivery.md)。
+
+`pnpm test:executors` 直接针对 npm 的 0.2.2 executor 验证原生准入、最终错误、PTC 根结果和策略覆盖，不依赖 capture。完整源码验收继续用 `DSH_SOURCE_ROOT=/absolute/path/to/capture-capable-fork pnpm check`，仅运行本插件选中的测试。`BasicCompactionEngine.summarize` 与压缩事务接口未变；主动摘要之外继续调用 `super.summarize`，模型切换检查由上游 Basic 注册。

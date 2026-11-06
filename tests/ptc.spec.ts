@@ -15,6 +15,7 @@ import type { CompressInput } from '../src/types.ts'
 /** Executes the actual program against the production PTC bridge without spawning processes. */
 class InProcessRuntime extends PtcRuntime {
   readonly language = 'typescript'
+  readonly programFormat = 'function-body'
   readonly isolation = 'test'
   resolve(request: PtcRunRequest): PtcRunSpec {
     return { ...request, cwd: request.cwd ?? process.cwd(), timeoutMs: 15_000 }

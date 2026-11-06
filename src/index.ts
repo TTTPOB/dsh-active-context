@@ -74,7 +74,7 @@ Both endpoints now match only the second node, selecting that whole message. In 
 /** Mount the unique provider, real worker hooks, and one awaited outer wrapper. */
 export function apply(ctx: Context, config: PluginConfig = Config({})): void {
   validateAcpConfig(config.acp)
-  if (typeof ctx.sessionQuery.captureSession !== 'function') throw new Error('ACP requires SessionQuery.captureSession (0.2.1-rc.1-fork1 API)')
+  if (typeof ctx.sessionQuery.captureSession !== 'function') throw new Error('ACP requires SessionQuery.captureSession (capture-capable Session/Query fork required)')
   if (ctx.get('compaction') !== undefined) throw new Error('ACP replaces the sole compaction provider; disable the original Basic provider first')
   const state: AcpState = {
     identities: new WeakMap(), facts: new WeakMap(), hideCandidates: new WeakMap(),

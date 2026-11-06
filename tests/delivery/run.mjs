@@ -9,6 +9,9 @@ import { parseArgs } from 'node:util'
 const { values } = parseArgs({ options: {
   acp: { type: 'string' }, query: { type: 'string' }, session: { type: 'string' }, sqlite: { type: 'string' },
 } })
+const manifest = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8'))
+const release = JSON.parse(await readFile(new URL('../../.github/release-dependencies.json', import.meta.url), 'utf8'))
+assert.equal(release.baseline, manifest.devDependencies['@deepseek-ai/dsh-tools'], 'Release dependency baseline must match the plugin build')
 for (const key of ['acp', 'query', 'session', 'sqlite']) assert.ok(values[key], `--${key} requires a tarball path or verified Release URL`)
 const source = value => value.startsWith('https://') ? value : 'file:' + resolve(value)
 const scratch = process.env.DSH_CONFIG_TEST_ROOT ?? fileURLToPath(new URL('../../.scratch/text-anchors/delivery/', import.meta.url))
@@ -31,15 +34,15 @@ try {
   await put(join(host, 'package.json'), {
     name: 'acp-isolated-host', private: true, type: 'module',
     dependencies: {
-      '@deepseek-ai/dsh': '0.2.1-rc.1', '@deepseek-ai/cordis-plugin-group': '1.0.5',
-      '@deepseek-ai/cordis': '4.0.5', '@deepseek-ai/schemastery': '3.18.5',
+      '@deepseek-ai/dsh': '0.2.2-rc.1', '@deepseek-ai/cordis-plugin-group': '1.1.0',
+      '@deepseek-ai/cordis': '4.1.0', '@deepseek-ai/schemastery': '3.18.5',
       // Required peers of Tools, AgentLoop, Persistence and Basic belong to the Host root.
       ...Object.fromEntries([
         'llm', 'agent', 'scope', 'sandbox', 'session', 'ptc-runtime',
         'system-prompt', 'user-approval', 'sandbox-policy', 'tools', 'session-projection',
         'session-persistence', 'commands', 'compaction', 'token-meter',
-        'compaction-tool-result-pruner', 'agent-loop',
-      ].map(name => ['@deepseek-ai/dsh-' + name, '0.2.1-rc.1'])),
+        'compaction-tool-result-pruner', 'agent-loop', 'tool-executor-native',
+      ].map(name => ['@deepseek-ai/dsh-' + name, '0.2.2-rc.1'])),
     },
   })
   await put(join(host, 'pnpm-workspace.yaml'), {

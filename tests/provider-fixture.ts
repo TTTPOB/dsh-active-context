@@ -80,7 +80,7 @@ export async function providerFixture() {
     submittedBatch = batch
     submittedIdentity = executionIdentity
     rendered = ''
-    const result = await ctx.tools.execute({ name: 'fixture-submit', callId, arguments: {}, signal: new AbortController().signal, agent })
+    const result = (await ctx.tools.execute({ calls: [{ type: 'tool-call', name: 'fixture-submit', id: callId, arguments: '{}' }], signal: new AbortController().signal, agent })).results[0]!.result
     return { result, rendered, facts: rendered ? JSON.parse(rendered) : undefined }
   }
   return { ctx, agent, session, adapter, engine, identity, config, state, old, latestTask, input, submit, dispose: () => ctx.fiber.dispose() }

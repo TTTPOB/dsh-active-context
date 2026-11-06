@@ -13,7 +13,7 @@ const boot = await hostImport('@deepseek-ai/dsh-app-boot')
 const { LlmAdapter, ToolCallId, createUserMessage } = await hostImport('@deepseek-ai/dsh-llm')
 const { Session, SessionId } = await hostImport('@deepseek-ai/dsh-session')
 const rows = [
-  ['llm'], ['session'], ['session-projection'], ['system-prompt'], ['tools', { mode: 'native' }],
+  ['llm'], ['session'], ['session-projection'], ['system-prompt'], ['tools'], ['tool-executor-native'],
   ['agent'], ['token-meter'], ['session-persistence-jsonl', { root: join(home, 'sessions') }],
   ['storage'], ['storage-json', { root: join(home, 'storages') }], ['storage-domain', { backend: 'json' }],
   ['workspace'], ['session-query-sqlite', { path: ':memory:', openAt: 'never' }],
@@ -33,10 +33,11 @@ let ctx
 let consumer
 try {
   // Test-local grants are limited to these explicit exact package/runtime combinations.
+  const release = JSON.parse(await readFile(new URL('../../.github/release-dependencies.json', import.meta.url), 'utf8'))
   const accepted = {
     'dsh-active-context': JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')).version,
-    '@deepseek-ai/dsh-session-query': '0.2.1-rc.1-fork1',
-    '@deepseek-ai/dsh-session-query-sqlite': '0.2.1-rc.1-fork1',
+    '@deepseek-ai/dsh-session-query': release.dependencies['@deepseek-ai/dsh-session-query'].version,
+    '@deepseek-ai/dsh-session-query-sqlite': release.dependencies['@deepseek-ai/dsh-session-query-sqlite'].version,
   }
   for (const [name, version] of Object.entries(accepted)) {
     const path = name.startsWith('@') ? join(resolution.entries.find(item => item.name === name && item.scope === 'installation').packageDir, 'package.json') : join(profile, 'node_modules', name, 'package.json')
@@ -86,7 +87,7 @@ try {
   const schema = (await hostImport('@deepseek-ai/schemastery')).default
   assert.deepEqual(schema.resolve({}, acp.Config, {})[0].acp.pressureRoutes, [])
   assert.throws(() => schema.resolve({ acp: { maxRegions: 1 } }, acp.Config, {}))
-  // Cordis 4.0.5 publishes FiberState as an erased const enum; ACTIVE is 2.
+  // Cordis 4.1.0 publishes FiberState as an erased const enum; ACTIVE is 2.
   for (const row of ctx.loader.entries()) if (!row.disabled) assert.equal(row.fiber?.state, 2, 'active Loader row ' + row.options.name)
   let input
   let index = 0

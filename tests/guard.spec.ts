@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createAssistantMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
+import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
 import { call, facts, fixture } from './guard-fixtures/fixture.ts'
 
 const contexts: Context[] = []
@@ -44,7 +45,7 @@ describe('independent compression admission', () => {
 
   it('rejects absent, interrupted, replacement, and closed-step authors', async () => {
     const f = await create({ cleanup: false })
-    const invoke = () => f.ctx.tools.execute({ callId: call().id, name: 'context_compress', arguments: {}, agent: f.agent, signal: new AbortController().signal })
+    const invoke = () => f.ctx.tools.execute({ calls: [call()], agent: f.agent, signal: new AbortController().signal }).then(batch => batch.results[0]!.result)
     expect((await invoke()).isError).toBe(true)
     expect((await f.manual([call()], true)).result.isError).toBe(true)
     expect((await invoke()).isError).toBe(true)
@@ -64,7 +65,9 @@ describe('independent compression admission', () => {
       name: 'outer', description: 'nested transport fixture', parameters: {},
       output: { schema: { type: 'boolean' }, render: () => [{ type: 'text', text: 'transport completed' }] },
       async execute(_args, exec) {
-        const result = await f.ctx.tools.execute({ callId: exec.callId, rootCallId: exec.rootCallId, parent: exec.token, name: 'context_compress', arguments: {}, agent: f.agent, signal: exec.signal })
+        const pipeline = new ToolExecutionPipeline(f.ctx)
+        const prepared = await pipeline.prepare({ callId: exec.callId, rootCallId: exec.rootCallId, parent: exec.token, name: 'context_compress', arguments: {}, agent: f.agent, signal: exec.signal })
+        const result = await pipeline.complete(prepared.exec, prepared.kind === 'dispatch' ? await pipeline.dispatch(prepared.exec) : prepared)
         nestedError = result.isError
         return true
       },
@@ -78,14 +81,14 @@ describe('independent compression admission', () => {
     const f = await create({ cleanup: false })
     f.agent.session.append('step/start', { turn: 1, step: 1 })
     f.agent.session.append('assistant/message', { turn: 1, step: 1, stream: [], message: createAssistantMessage({ content: [call()], source: { provider: 'p', model: 'm' } }) }, { surfaceOp: 'append' })
-    await f.ctx.tools.execute({ callId: call().id, name: 'context_compress', arguments: {}, agent: f.agent, signal: new AbortController().signal })
+    await f.ctx.tools.execute({ calls: [call()], agent: f.agent, signal: new AbortController().signal }).then(batch => batch.results[0]!.result)
     const execution = f.executions[0]!
     expect(f.state.identities.has(execution)).toBe(true)
     await f.fiber.dispose()
     expect(f.state.identities.has(execution)).toBe(false)
     let runs = 0
     f.ctx.tools.register({ name: 'context_compress', description: 'unguarded', parameters: {}, output: { schema: { type: 'number' }, render: () => [] }, async execute() { runs += 1; return 1 } })
-    const result = await f.ctx.tools.execute({ callId: ToolCallId('no-author'), name: 'context_compress', arguments: {}, agent: f.agent, signal: new AbortController().signal })
+    const result = (await f.ctx.tools.execute({ calls: [call('no-author')], agent: f.agent, signal: new AbortController().signal })).results[0]!.result
     expect(result.isError).toBe(false)
     expect(runs).toBe(1)
   })

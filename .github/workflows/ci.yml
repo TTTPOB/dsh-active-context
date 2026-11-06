@@ -27,6 +27,8 @@ jobs:
           node-version: '24'
       - name: Install pinned build dependencies
         run: pnpm --config.verify-deps-before-run=false install --frozen-lockfile --config.auto-install-peers=false --config.enable-global-virtual-store=false
+      - name: Verify published native and PTC executor behavior
+        run: pnpm --config.verify-deps-before-run=false test:executors
       - name: Build and pack the plugin
         run: pnpm --config.verify-deps-before-run=false pack --pack-destination dist/release
       - name: Verify clean profile installation and production Loader behavior
