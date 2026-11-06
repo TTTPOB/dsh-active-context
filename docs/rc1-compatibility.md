@@ -1,6 +1,6 @@
 # DSH rc.1 兼容与 API 清单
 
-ACP 使用官方 DSH `0.2.2-rc.1`；Session／Query 需要同基线 capture fork，通过 pnpm overrides 注入。Cordis 为 4.1.0，Schemastery 为 3.18.5；构建工具链为 pnpm 11.28.5、TypeScript ^6.0.3。以下清单覆盖生产代码直接使用的 DSH API；测试另消费 agent-loop-testkit、JSONL、SQLite、llm-replay、session-snapshot 和 Loader／Include。
+ACP 使用官方 DSH `0.2.2-rc.1`；Session／Query 需要同基线 capture fork，通过 pnpm overrides 注入。Cordis 为 4.1.0，Schemastery 为 3.19.0；构建工具链为 pnpm 11.28.5、TypeScript ^6.0.3。以下清单覆盖生产代码直接使用的 DSH API；测试另消费 agent-loop-testkit、JSONL、SQLite、llm-replay、session-snapshot 和 Loader／Include。
 
 ## 生产 API
 

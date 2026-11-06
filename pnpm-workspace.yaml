@@ -29,4 +29,4 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-typert-protocol@0.2.2-rc.1'
   - '@deepseek-ai/dsh-util-crypto@0.2.2-rc.1'
   - '@deepseek-ai/dsh-util-values@0.2.2-rc.1'
-  - '@deepseek-ai/schemastery@3.18.5'
+  - '@deepseek-ai/schemastery@3.19.0'
