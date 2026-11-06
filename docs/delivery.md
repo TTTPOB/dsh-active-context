@@ -20,7 +20,7 @@ NODE_OPTIONS=--max-old-space-size=3072 pnpm --config.verify-deps-before-run=fals
 NODE_OPTIONS=--max-old-space-size=3072 pnpm --config.verify-deps-before-run=false pack --pack-destination dist/release
 ```
 
-`prepack` 运行严格 TypeScript 构建，成品包含 JavaScript、声明文件与文档。正式 profile 只安装 ACP，由 Host 提供 Cordis／DSH 服务 peers。ACP 不依赖 session-tools。
+`prepack` 运行严格 TypeScript 构建，成品包含 JavaScript、声明文件与文档。正式 profile 只安装 ACP，由 Host 提供 Cordis／DSH 服务 peers。Schemastery 由 ACP 的运行依赖安装，Host 可校验其 Schema，无需共享实例或核对两者版本相等。ACP 不依赖 session-tools。
 
 ## 隔离安装验证
 

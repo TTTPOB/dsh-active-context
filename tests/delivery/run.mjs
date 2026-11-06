@@ -35,7 +35,7 @@ try {
     name: 'acp-isolated-host', private: true, type: 'module',
     dependencies: {
       '@deepseek-ai/dsh': '0.2.2-rc.1', '@deepseek-ai/cordis-plugin-group': '1.1.0',
-      '@deepseek-ai/cordis': '4.1.0', '@deepseek-ai/schemastery': manifest.devDependencies['@deepseek-ai/schemastery'],
+      '@deepseek-ai/cordis': '4.1.0',
       // Required peers of Tools, AgentLoop, Persistence and Basic belong to the Host root.
       ...Object.fromEntries([
         'llm', 'agent', 'scope', 'sandbox', 'session', 'ptc-runtime',

@@ -76,8 +76,7 @@ try {
       assert.equal(actual.version, release.dependencies[peer]?.version ?? manifest.peerDependencies[peer], 'exact peer version ' + peer)
       const expected = resolution.entries.find(item => item.name === peer && item.scope === 'installation')
       assert.ok(expected, 'Host/profile provides ' + peer)
-      if (peer === '@deepseek-ai/schemastery') assert.equal(actual.version, expected.version)
-      else assert.equal(await realpath(actual.dir), await realpath(expected.packageDir ?? expected.dir), `shared identity ${name} -> ${peer}`)
+      assert.equal(await realpath(actual.dir), await realpath(expected.packageDir ?? expected.dir), `shared identity ${name} -> ${peer}`)
     }
   }
   const acp = consumer.acp
@@ -260,7 +259,7 @@ try {
   assert.equal(ctx.get('compaction'), undefined)
   assert.equal(ctx.tools.get('context_compress'), undefined)
   console.log(JSON.stringify({
-    sharedPeers: 'Host Cordis/DSH identity; same-version Schemastery',
+    sharedPeers: 'Host Cordis/DSH identity; plugin-owned Schemastery',
     loader: 'all rows active, unique ACP provider, Host schema validation',
     behavior: 'two adjacent commits, independent summaries, retained constraint, pair cleanup, replay; relay-body map, display exclusion, protected split retry, explicit reset-target completion or still-high advice in maintenance without another pressure notice; provider disposal',
     compatibility, testLocalExemptionsOnly: true,

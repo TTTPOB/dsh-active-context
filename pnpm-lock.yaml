@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: 3.19.0
+        version: 3.19.0
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: 4.1.0
@@ -98,9 +102,6 @@ importers:
       '@deepseek-ai/dsh-working-directory':
         specifier: 0.2.2-rc.1
         version: 0.2.2-rc.1(523417378dd3f3049068ec93f993992c)
-      '@deepseek-ai/schemastery':
-        specifier: 3.19.0
-        version: 3.19.0
       '@types/node':
         specifier: ^26.6.3
         version: 26.6.5
