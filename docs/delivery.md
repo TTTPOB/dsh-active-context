@@ -4,13 +4,13 @@
 
 ## 本地构建与打包
 
-在开发副本中准备真实的 Session／Query `0.2.1-rc.1-fork1` tarball。用被忽略的 `pnpm-workspace.yaml` overrides 选择它们，将安装 lockfile 放入 `.scratch/local-lock`；不要提交本机 file: 路径或猜测发布 URL。示例 overrides：
+在开发副本中准备真实的 Session／Query `0.2.2-rc.1-fork1` tarball。用被忽略的 `pnpm-workspace.yaml` overrides 选择它们，将安装 lockfile 放入 `.scratch/local-lock`；不要提交本机 file: 路径或猜测发布 URL。示例 overrides：
 
 ```yaml
 packages: ['.']
 overrides:
-  '@deepseek-ai/dsh-session': file:/absolute/path/deepseek-ai-dsh-session-0.2.1-rc.1-fork1.tgz
-  '@deepseek-ai/dsh-session-query': file:/absolute/path/deepseek-ai-dsh-session-query-0.2.1-rc.1-fork1.tgz
+  '@deepseek-ai/dsh-session': file:/absolute/path/deepseek-ai-dsh-session-0.2.2-rc.1-fork1.tgz
+  '@deepseek-ai/dsh-session-query': file:/absolute/path/deepseek-ai-dsh-session-query-0.2.2-rc.1-fork1.tgz
 blockExoticSubdeps: false
 ```
 
@@ -28,10 +28,10 @@ NODE_OPTIONS=--max-old-space-size=3072 pnpm --config.verify-deps-before-run=fals
 
 ```sh
 NODE_OPTIONS=--max-old-space-size=3072 node tests/delivery/run.mjs \
-  --acp "$PWD/dist/release/dsh-active-context-0.5.0.tgz" \
-  --session /absolute/path/deepseek-ai-dsh-session-0.2.1-rc.1-fork1.tgz \
-  --query /absolute/path/deepseek-ai-dsh-session-query-0.2.1-rc.1-fork1.tgz \
-  --sqlite /absolute/path/deepseek-ai-dsh-session-query-sqlite-0.2.1-rc.1-fork1.tgz
+  --acp "$PWD/dist/release/dsh-active-context-0.6.0.tgz" \
+  --session /absolute/path/deepseek-ai-dsh-session-0.2.2-rc.1-fork1.tgz \
+  --query /absolute/path/deepseek-ai-dsh-session-query-0.2.2-rc.1-fork1.tgz \
+  --sqlite /absolute/path/deepseek-ai-dsh-session-query-sqlite-0.2.2-rc.1-fork1.tgz
 ```
 
 入口在 ignored `.scratch/text-anchors/delivery/` 下安装独立 DSH 依赖根与只含 ACP 的 profile，关闭 profile 自动安装 peers。测试使用生产 `createRuntimeResolution`／`PluginPackages` 与进程内 Loader，核对服务 peer 身份、包版本、built entry、schema、相邻区间压缩、来源范围、清理、提醒、最终回答、replay 和卸载。源码 PTC 回归另验证规范程序、部分失败、取消、策略覆盖与成功 root pair 清理。
