@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import ToolResultPruner from '@deepseek-ai/dsh-compaction-tool-result-pruner'
 import { createUserMessage, ToolCallId, LlmError, CONTEXT_WINDOW_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { AcpConfigSchema, validateAcpConfig } from '../src/config.ts'
 import { configFor, largeTask, notices, reminderFixture, replaceHistory } from './reminder-fixtures/fixture.ts'
 

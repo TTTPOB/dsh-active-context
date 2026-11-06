@@ -6,7 +6,7 @@ import { fixture } from './guard-fixtures/fixture.ts'
 
 class InlineRuntime extends PtcRuntime {
   readonly language = 'typescript'
-  readonly programFormat = 'function-body'
+  override get programFormat() { return 'function-body' as const }
   readonly isolation = 'test'
   resolve(request: PtcRunRequest): PtcRunSpec {
     return { ...request, cwd: request.cwd ?? process.cwd(), timeoutMs: 15_000 }
@@ -31,7 +31,7 @@ for (const policy of ['accept', 'block', 'replace', 'throw'] as const) {
     try {
       provideWorkingDirectoryFixture(f.ctx)
       await f.ctx.plugin(InlineRuntime)
-      if (policy !== 'accept') f.ctx.on('tools/post-execute', (exec, _result, next) => {
+      if (policy !== 'accept') f.ctx.on('tools/post-execute', async (exec, _result, next) => {
         if (exec.name !== 'run_code') return next()
         if (policy === 'throw') throw new Error('root policy failure')
         return policy === 'block'
