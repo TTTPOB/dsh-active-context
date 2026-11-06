@@ -40,6 +40,6 @@ NODE_OPTIONS=--max-old-space-size=3072 node tests/delivery/run.mjs \
 
 ## 发布前提
 
-当前 fork 资产尚未发布，开发 manifest 保持精确版本且不带本机路径。发布前必须先固定真实、不可变的 fork 来源并由 pnpm 生成可复现的发布 lockfile，再运行全部成品检查。Release workflow 的冻结安装在缺失 lockfile 时会明确停止；人工触发时还须提供已核对的 Session／Query／SQLite 资产 URL。
+开发 manifest 保持官方精确版本且不带本机路径；发布合同与 workspace overrides 固定已经发布的 Session／Query／SQLite fork1 不可变资产，lockfile 由 pnpm 正常生成。Release workflow 使用冻结安装，并默认读取合同中的精确来源；人工触发可显式提供已核对的 Session／Query／SQLite 资产 URL。
 
 本地构建、资产发布、正式配置安装和 Host 激活各自验证。新 URL 只在资产发布并核实后填写；不可复用或覆盖旧版本产物。此次升级不执行发布或激活。
