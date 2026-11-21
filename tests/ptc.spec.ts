@@ -39,7 +39,7 @@ it('only parses the complete canonical JSON-literal program', () => {
   }
 })
 
-async function ptcFixture(outcome: 'success' | 'partial' | 'cancel' | 'late-cancel' | 'post-block' | 'post-throw' | 'post-replace' | 'invalid' | 'mention') {
+async function ptcFixture(outcome: 'success' | 'partial' | 'cancel' | 'late-cancel' | 'post-block' | 'post-throw' | 'partial-root-error' | 'post-replace' | 'invalid' | 'mention') {
   let input: CompressInput
   let ordinaryRuns = 0
   const f = await createLoopFixture([
@@ -71,7 +71,7 @@ async function ptcFixture(outcome: 'success' | 'partial' | 'cancel' | 'late-canc
       if (exec.name === 'run_code') f.agent.cancel({ kind: 'user' })
       return decision
     })
-    if (outcome === 'post-throw') ctx.on('tools/post-execute', async (exec, _result, next) => {
+    if (outcome === 'post-throw' || outcome === 'partial-root-error') ctx.on('tools/post-execute', async (exec, _result, next) => {
       if (exec.name === 'run_code') throw new Error('Root post policy threw')
       return next()
     })
@@ -82,7 +82,10 @@ async function ptcFixture(outcome: 'success' | 'partial' | 'cancel' | 'late-canc
   }, 'ptc')
   await seedHistory(f.agent)
   input = selection(f.agent.session)
-  if (outcome === 'partial') input = { regions: [...input.regions, { range: [{ text: 'missing endpoint' }, { text: 'missing endpoint' }], summary: 'Missing' }] }
+  if (outcome === 'partial' || outcome === 'partial-root-error') input = { regions: [
+    ...(outcome === 'partial' ? input.regions : input.regions.slice(0, 1)),
+    { range: [{ text: 'missing endpoint' }, { text: 'missing endpoint' }], summary: 'Missing' },
+  ] }
   await runTurn(f.agent, 'Compress completed history then continue the task.')
   return { ...f, input, ordinaryRuns: () => ordinaryRuns }
 }
@@ -121,7 +124,7 @@ it('compresses through the real PTC bridge, then hides only the successful canon
   } finally { await f.ctx.fiber.dispose() }
 })
 
-for (const outcome of ['partial', 'cancel', 'late-cancel', 'post-block', 'post-throw', 'post-replace', 'invalid'] as const) it(`preserves the root pair and final accounting for ${outcome}`, async () => {
+for (const outcome of ['partial', 'cancel', 'late-cancel', 'post-block', 'post-throw', 'partial-root-error', 'post-replace', 'invalid'] as const) it(`preserves the root pair and final accounting for ${outcome}`, async () => {
   const f = await ptcFixture(outcome)
   try {
     const log = f.agent.session.snapshotEvents()
@@ -139,10 +142,17 @@ for (const outcome of ['partial', 'cancel', 'late-cancel', 'post-block', 'post-t
       const notices = log.filter(event => event.type === 'user/message' && event.data.source.kind === 'acp-maintenance')
       expect(JSON.stringify([result, ...notices])).toContain('source_start_seq')
       if (outcome === 'partial') expect(JSON.stringify(result)).toContain('missing endpoint')
-      if (outcome === 'late-cancel' || outcome === 'post-throw') {
+      if (outcome === 'late-cancel' || outcome === 'post-throw' || outcome === 'partial-root-error') {
         expect(notices).toHaveLength(1)
         expect(JSON.stringify(notices)).toContain('final_error')
         expect(JSON.stringify(notices)).toContain(outcome === 'late-cancel' ? 'ABORTED' : 'Root post policy threw')
+        if (outcome === 'partial-root-error') {
+          const committed = log.filter(event => event.type === 'compaction/summary')
+          expect(committed).toHaveLength(1)
+          expect(committed[0]?.data.summary).toEqual([{ type: 'text', text: f.input.regions[0]!.summary }])
+          expect(JSON.stringify(f.agent.session.deriveMessages())).toContain(f.input.regions[0]!.summary)
+          expect(JSON.stringify(notices)).toContain('missing endpoint')
+        }
       }
     }
     const seqs = [...f.agent.session.surface.nodes]
