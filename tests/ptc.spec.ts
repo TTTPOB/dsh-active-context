@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
+import { assertSupportedJsonSchema } from '@deepseek-ai/dsh-tools'
 import { PtcRuntime, type PtcRunRequest, type PtcRunSpec, type PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
-import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId, type GenerateOptions } from '@deepseek-ai/dsh-llm'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
@@ -30,6 +31,38 @@ class InProcessRuntime extends PtcRuntime {
     }
   }
 }
+
+it('delivers the endpoint parameter description in the native schema and PTC SDK', async () => {
+  const requestFor = async (mode: 'native' | 'ptc') => {
+    let request: GenerateOptions | undefined
+    const f = await createLoopFixture([options => {
+      request = options
+      return [{ type: 'text', text: 'Observed tool declarations.' }]
+    }], async ctx => {
+      if (mode === 'ptc') {
+        provideWorkingDirectoryFixture(ctx)
+        await ctx.plugin(InProcessRuntime)
+      }
+      await ctx.plugin(TokenMeter)
+      await ctx.plugin(SqliteSessionQuery, { path: ':memory:', openAt: 'never' })
+      await loadActiveContext(ctx, { basic: { auto: false } })
+    }, mode)
+    try { await runTurn(f.agent, 'Inspect the current tool declarations.') }
+    finally { await f.ctx.fiber.dispose() }
+    if (request === undefined) throw new Error(`No ${mode} model request was sent`)
+    return request
+  }
+  const native = await requestFor('native')
+  const schema = native.tools?.find(tool => tool.name === 'context_compress')?.parameters
+  assertSupportedJsonSchema(schema)
+  const range = schema.properties?.regions?.items?.properties?.range
+  const description = range?.items?.properties?.text?.description
+  expect(description).toBeTruthy()
+  const ptc = await requestFor('ptc')
+  const prompt = ptc.messages.filter(message => message.role === 'system').flatMap(message =>
+    message.content.flatMap(block => block.type === 'text' ? [block.text] : [])).join('\n')
+  expect(prompt).toContain(description)
+})
 
 it('only parses the complete canonical JSON-literal program', () => {
   expect(compressionProgram(' \nreturn await tools.context_compress({"regions":[]});\n')).toEqual({ regions: [] })

@@ -9,7 +9,7 @@ import type { AcpConfig } from './types.ts'
 export function installBoundaryTool(ctx: Context, config: AcpConfig): void {
   ctx.tools.register(defineTool({
     name: 'context_boundaries',
-    description: 'Show the protected boundaries of the current Surface and suggested ranges in completed history that context_compress can select. Optional; may be called alongside other tools.',
+    description: 'Show the protected boundaries of the current Surface and suggested ranges in completed history that context_compress can select. Optional; may be called alongside other tools. Use it when you plan to compress.',
     parameters: {},
     output: { schema: { type: 'string' }, render: (_args, text) => [{ type: 'text', text }] },
     async execute(_args, exec) {

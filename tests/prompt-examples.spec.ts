@@ -17,7 +17,7 @@ interface ExampleMessage {
 
 /** Read the model-facing JSON examples, then exercise the actual schema and matcher. */
 function exampleJson(): unknown[] {
-  return [...ACP_INSTRUCTIONS.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match): unknown => JSON.parse(match[1]!))
+  return [...ACP_INSTRUCTIONS.split('Example 3 —')[0]!.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match): unknown => JSON.parse(match[1]!))
 }
 
 function history(value: unknown): ExampleMessage[] {
@@ -36,7 +36,7 @@ function input(schema: JsonSchemaNode, value: unknown): CompressInput {
   return value as CompressInput
 }
 
-async function exampleFixture(messages: readonly ExampleMessage[]) {
+async function exampleFixture(messages: readonly ExampleMessage[], submission?: CompressInput) {
   const fixture = await createLoopFixture([], async ctx => {
     await ctx.plugin(TokenMeter)
     await ctx.plugin(SqliteSessionQuery, { path: ':memory:', openAt: 'never' })
@@ -56,7 +56,7 @@ async function exampleFixture(messages: readonly ExampleMessage[]) {
     session.append('user/message', createUserMessage({ content: [{ type: 'text', text: 'Separate current task; preserve this input.' }], source: { kind: 'user' } }), { surfaceOp: 'append' })
     session.append('step/start', { turn: 2, step: 1 })
     const callId = ToolCallId('prompt-example-call')
-    const author = session.append('assistant/message', { turn: 2, step: 1, stream: [], message: createMessage({ role: 'assistant', content: [{ type: 'tool-call', id: callId, name: 'context_compress', arguments: '{}' }], source: { kind: 'model', provider: 'acceptance', model: 'scripted' } }) }, { surfaceOp: 'append' })
+    const author = session.append('assistant/message', { turn: 2, step: 1, stream: [], message: createMessage({ role: 'assistant', content: [{ type: 'tool-call', id: callId, name: 'context_compress', arguments: JSON.stringify(submission ?? {}) }], source: { kind: 'model', provider: 'acceptance', model: 'scripted' } }) }, { surfaceOp: 'append' })
     const identity: ExecutionIdentity = { sessionId: agent.id, turn: 2, step: 1, assistantSeq: author.seq, callId, provider: 'acceptance', model: 'scripted' }
     const schema = ctx.tools.schemas().find(tool => tool.name === 'context_compress')?.parameters
     assertSupportedJsonSchema(schema)
@@ -98,6 +98,36 @@ it('the repeated assistant phrase is ambiguous, while the corrected prompt submi
     const { regions: resolved } = await preflightRegions(f.ctx, f.agent, f.identity, corrected, f.config)
     expect(resolved[0]!.seqs).toEqual([f.seqs[1]])
     expect(resolved[0]!.messages[0]!.content).toEqual([{ type: 'text', text: messages[1]!.text }])
+  } finally { await f.ctx.fiber.dispose() }
+})
+
+it('rejects the third prompt example’s three inexact endpoints and commits its literal selection', async () => {
+  const section = ACP_INSTRUCTIONS.split('Example 3 —')[1]!
+  const blocks = [...section.matchAll(/```json\n([\s\S]*?)\n```/g)].map(match => match[1]!)
+  const messages = history(JSON.parse(blocks[0]!))
+  const positive = JSON.parse(blocks[2]!) as CompressInput
+  // Keep the shown excerpts intact while making the historical span large enough to compress.
+  const f = await exampleFixture(messages.map(message => ({ ...message,
+    text: message.text + ' Historical diagnostic detail.'.repeat(20),
+  })), positive)
+  try {
+    const submitted = input(f.schema, positive)
+    const region = submitted.regions[0]!
+    const invalid = blocks[1]!.split('\n').map(line => JSON.parse(line))
+    expect(invalid).toHaveLength(3)
+    for (const endpoint of invalid) {
+      const bad = input(f.schema, { regions: [{ ...region, range: [endpoint, region.range[1]] }] })
+      await expect(preflightRegions(f.ctx, f.agent, f.identity, bad, f.config)).resolves.toMatchObject({
+        facts: [expect.objectContaining({ status: 'failed', error: expect.stringMatching(/endpoint 0 has no match/) })],
+      })
+    }
+    const { results } = await f.ctx.tools.execute({
+      calls: [{ type: 'tool-call', id: f.identity.callId, name: 'context_compress', arguments: JSON.stringify(submitted) }],
+      agent: f.agent, signal: new AbortController().signal,
+    })
+    expect(results[0]?.result.isError, JSON.stringify(results[0]?.result)).toBe(false)
+    const committed = f.agent.session.snapshotEvents().find(event => event.type === 'compaction/summary')
+    expect(committed).toMatchObject({ data: { shadowedSeqs: f.seqs, summary: [{ type: 'text', text: region.summary }] } })
   } finally { await f.ctx.fiber.dispose() }
 })
 
