@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { PtcRuntime, type PtcRunRequest, type PtcRunSpec, type PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
-import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import SqliteSessionQuery from '@deepseek-ai/dsh-session-query-sqlite'
@@ -161,3 +161,77 @@ for (const outcome of ['partial', 'cancel', 'late-cancel', 'post-block', 'post-t
     expect(isEndpointCandidate(surface, seqs.indexOf(result.seq))).toBe(outcome === 'invalid')
   } finally { await f.ctx.fiber.dispose() }
 })
+for (const mode of ['native', 'ptc'] as const) for (const change of ['none', 'instructions'] as const) {
+  it(`uses ${mode} boundary maps as reference only (${change})`, async () => {
+    const mapId = ToolCallId('history-map')
+    const compressId = ToolCallId('use-map')
+    const marker = 'Protected boundaries in Surface order'
+    const instruction = 'A new live instruction after the map.'
+    let range: CompressInput['regions'][number]['range']
+    const call = (id: ToolCallId, name: string, args: object) => ({ type: 'tool-call' as const, id, name, arguments: JSON.stringify(args) })
+    const runCode = (id: ToolCallId, code: string) => call(id, 'run_code', { code, description: 'Replay bounded context' })
+    const f = await createLoopFixture([
+      [{ type: 'text', text: 'Completed historical A.' }],
+      [{ type: 'text', text: 'Retain middle constraint.' }],
+      [{ type: 'text', text: 'Completed historical B.' }],
+      mode === 'native' ? [call(mapId, 'context_boundaries', {}), call(ToolCallId('sibling'), 'ordinary', {})]
+        : [runCode(mapId, 'const map = await tools.context_boundaries({}); await tools.ordinary({}); return map;')],
+      request => {
+        expect(JSON.stringify(request.messages)).toContain(marker)
+        const session = f.agent.session
+        const log = session.snapshotEvents()
+        const root = log.find(event => event.type === 'tool/result' && event.data.message.toolCallId === mapId)
+        const map = mode === 'native' ? (root?.type === 'tool/result' ? root.data.message.content : undefined)
+          : log.find(event => event.type === 'tool/ptc-dispatch' && event.data.name === 'context_boundaries')?.data.content
+        const text = map?.find(block => block.type === 'text')?.text
+        expect(text).toMatch(/B\d+ instructions .*system /)
+        expect(text).not.toContain('Inspect boundaries and optionally compress completed history.')
+        expect(text).not.toContain(instruction)
+        const encoded = text?.split('\n').find(line => line.startsWith('Selectable historical ranges: '))?.slice('Selectable historical ranges: '.length)
+        expect(encoded).toBeDefined()
+        range = JSON.parse(encoded!)[0]
+        expect(range[0]).toMatchObject({ role: 'user' })
+        expect(range[1]).toMatchObject({ role: 'assistant', text: 'Completed historical B.' })
+        if (change === 'instructions') {
+          const first = log.find(event => event.type === 'user/message' && event.data.content.some(block => block.type === 'text' && block.text.includes(range[0]!.text)))!
+          if (first.type !== 'user/message') throw new Error('Missing historical range start')
+          session.append('user/message', createUserMessage({
+            content: [...first.data.content, { type: 'text', text: instruction }], source: { kind: 'user', form: 'instructions' },
+          }), { surfaceOp: { op: 'replace', startSeq: first.seq, endSeq: first.seq }, sourceEventSeqs: [first.seq] })
+        }
+        const display = { text: marker, role: 'tool' }
+        const input = { regions: [{ range: [display, display], summary: 'Map text must not be an endpoint.' },
+          { range, summary: 'Completed history retained from the suggested range.' }] }
+        return [mode === 'native' ? call(compressId, 'context_compress', input)
+          : runCode(compressId, 'return await tools.context_compress(' + JSON.stringify(input) + ');')]
+      },
+      [{ type: 'text', text: 'Continued the task.' }],
+    ], async ctx => {
+      if (mode === 'ptc') {
+        provideWorkingDirectoryFixture(ctx)
+        await ctx.plugin(InProcessRuntime)
+      }
+      await ctx.plugin(TokenMeter)
+      await ctx.plugin(SqliteSessionQuery, { path: ':memory:', openAt: 'never' })
+      await loadActiveContext(ctx, { basic: { auto: false } })
+      ctx.tools.register({ name: 'ordinary', description: 'Sibling fixture', parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: String(value) }] },
+        async execute() { return 'Sibling completed.' } })
+    }, mode)
+    try {
+      await seedHistory(f.agent)
+      await runTurn(f.agent, 'Inspect boundaries and optionally compress completed history.')
+      const events = f.agent.session.snapshotEvents()
+      const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === compressId)
+      expect(result, JSON.stringify(events.filter(event => event.type === 'tool/result' || event.type === 'turn/end' || event.type === 'assistant/attempt').slice(-5))).toBeDefined()
+      expect(JSON.stringify(result)).toContain('has no match')
+      expect(events.filter(event => event.type === 'compaction/summary')).toHaveLength(change === 'none' ? 1 : 0)
+      expect(JSON.stringify(events)).toContain('Sibling completed.')
+      if (change === 'instructions') {
+        expect(JSON.stringify(result)).toContain('live_instructions')
+        expect(JSON.stringify(f.agent.session.deriveMessages())).toContain(instruction)
+      }
+      expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+    } finally { await f.ctx.fiber.dispose() }
+  })
+}

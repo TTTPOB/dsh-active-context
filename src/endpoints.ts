@@ -16,8 +16,11 @@ export function isEndpointCandidate(surface: SurfaceCapture, index: number): boo
   const call = surface.log.findLast(candidate => candidate.seq < event.seq && candidate.type === 'tool/call'
     && candidate.data.turn === event.data.turn && candidate.data.step === event.data.step && candidate.data.callId === message.toolCallId)
   if (call?.type !== 'tool/call') return true
-  if (call.data.name === 'context_compress') return false
+  if (call.data.name === 'context_compress' || call.data.name === 'context_boundaries') return false
   if (call.data.name !== 'run_code') return true
+  // A run_code program can query a map alongside other tools; attribute its root by durable dispatch, not source syntax.
+  if (surface.log.some(candidate => candidate.seq > call.seq && candidate.seq < event.seq
+    && isBoundaryDispatch(candidate, call.data.callId))) return false
   try {
     const args = JSON.parse(call.data.arguments)
     return typeof args?.code !== 'string' || compressionProgram(args.code) === undefined
@@ -25,6 +28,13 @@ export function isEndpointCandidate(surface: SurfaceCapture, index: number): boo
     if (!(error instanceof SyntaxError)) throw error
     return true
   }
+}
+
+function isBoundaryDispatch(event: { type: string; data: unknown }, rootCallId: string): boolean {
+  const { data } = event
+  return event.type === 'tool/ptc-dispatch' && data !== null && typeof data === 'object'
+    && 'rootCallId' in data && data.rootCallId === rootCallId
+    && 'name' in data && data.name === 'context_boundaries'
 }
 
 interface EndpointMatch {

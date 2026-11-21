@@ -65,7 +65,7 @@ function protectionClass(reasons: readonly ProtectionReason[]): ProtectionClass 
 }
 
 /** Labels are local to this map; first/last clues delimit consecutive same-class nodes. */
-export function protectionGroups(surface: SurfaceCapture, protection: Protection) {
+export function protectionGroups(surface: SurfaceCapture, protection: Protection, hideCurrentStep = false) {
   const groups: { label: string; classification: ProtectionClass; start: number; end: number; count: number; hasLatestTask: boolean }[] = []
   surface.seqs.forEach((seq, index) => {
     const reasons = protection.get(seq)
@@ -81,11 +81,32 @@ export function protectionGroups(surface: SurfaceCapture, protection: Protection
   return groups.map(group => ({
     ...group,
     text: `${group.label} ${group.classification} (${group.count} node${group.count === 1 ? '' : 's'}): `
-      + [group.start, ...(group.end === group.start ? [] : [group.end])].map(index => {
+      + (hideCurrentStep && group.classification === 'current_step' ? '[current Step content not shown]' : [group.start, ...(group.end === group.start ? [] : [group.end])].map(index => {
         const clue = literalClue(surface, index, 80)
         return `${clue.role ?? 'no role'} ${clue.text_excerpt === null ? '[no text block]' : JSON.stringify(clue.text_excerpt)}${clue.unique ? '' : ' [no unique short literal]'}`
-      }).join(' → '),
+      }).join(' → ')),
   }))
+}
+
+/** Render the pressure-map format within the caller's whole-message budget. */
+export function renderProtectionMap(core: string, surface: SurfaceCapture, protection: Protection, fits: (text: string) => boolean, hideCurrentStep = false): string | undefined {
+  const groups = protectionGroups(surface, protection, hideCurrentStep)
+  const render = (selected: typeof groups) => {
+    const ordered = [...selected].sort((a, b) => a.start - b.start)
+    const omitted = groups.length - ordered.length
+    const nodes = protection.size - ordered.reduce((sum, group) => sum + group.count, 0)
+    return core + '\nProtected boundaries in Surface order (consecutive same-class nodes grouped):\n'
+      + (ordered.length === 0 ? '[none listed]\n' : ordered.map(group => group.text).join('\n') + '\n')
+      + (omitted === 0 ? 'All current Surface protection groups listed.'
+        : `Omitted ${omitted} protection groups (${nodes} nodes); there are unlisted boundaries. Do not assume an unlisted section is clear.`)
+  }
+  const selected: typeof groups = []
+  if (!fits(render(selected))) return undefined
+  // Make easily missed task/carrier nodes visible before spending room on instructions.
+  for (const group of [...groups].sort((a, b) => Number(b.hasLatestTask) - Number(a.hasLatestTask))) {
+    if (fits(render([...selected, group]))) selected.push(group)
+  }
+  return render(selected)
 }
 
 /** Return bounded selectable fragments, never summaries, inside the original submitted range. */
@@ -93,6 +114,11 @@ export function safeSplitRanges(surface: SurfaceCapture, protection: Protection,
   if (surface.seqs.slice(start, end + 1).some(seq => protection.get(seq)?.includes('current_step'))) {
     return { ranges: [], unavailable: 'current_step is a hard rejection; no split suggestions' }
   }
+  return selectableRanges(surface, protection, session, start, end)
+}
+
+/** Suggest complete historical spans without allowing a protected node or expanding beyond the bounds. */
+export function selectableRanges(surface: SurfaceCapture, protection: Protection, session: Session, start: number, end: number) {
   const safe = (left: number, right: number) => {
     const expanded = expandToolPairs(surface.messages, left, right)
     return !expanded.missingCounterpart && expanded.start >= start && expanded.end <= end

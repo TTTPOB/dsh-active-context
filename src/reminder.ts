@@ -6,7 +6,7 @@ import { SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { TokenMeasurement } from '@deepseek-ai/dsh-token-meter'
 import { protectedNodes, sampleSurface, type SurfaceCapture } from './protection.ts'
-import { protectionGroups } from './boundaries.ts'
+import { renderProtectionMap } from './boundaries.ts'
 import type { AcpConfig, PreStepFrame, ReminderBasicConfig, ReminderHooks } from './types.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
@@ -32,7 +32,6 @@ function previouslyReminded(session: Session): boolean {
 
 function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, nativeAt: number, surface: SurfaceCapture, frame: PreStepFrame): UserMessage {
   const protection = protectedNodes(surface, frame, config, 'pre-step')
-  const groups = protectionGroups(surface, protection)
   const core = 'Host context maintenance notice: context pressure is high.\n'
     + `T≈${measurement.totalTokens} tokens; native automatic compaction threshold H=${nativeAt}.\n`
     + 'Use context_compress to summarize completed work that no longer needs verbatim history. '
@@ -47,27 +46,14 @@ function notice(ctx: Context, config: AcpConfig, measurement: TokenMeasurement, 
     content: [{ type: 'text', text: core }],
     source: { kind: 'acp-pressure', form: 'notice', summary: boundContextSummary('High context pressure; summarize completed history.') },
   })
-  const render = (selected: typeof groups) => {
-    const ordered = [...selected].sort((a, b) => a.start - b.start)
-    const omitted = groups.length - ordered.length
-    const nodes = protection.size - ordered.reduce((sum, group) => sum + group.count, 0)
-    return core + '\nProtected boundaries in Surface order (consecutive same-class nodes grouped):\n'
-      + (ordered.length === 0 ? '[none listed]\n' : ordered.map(group => group.text).join('\n') + '\n')
-      + (omitted === 0 ? 'All current Surface protection groups listed.'
-        : `Omitted ${omitted} protection groups (${nodes} nodes); there are unlisted boundaries. Do not assume an unlisted section is clear.`)
-  }
   const fits = (text: string) => {
     message = { ...message, content: [{ type: 'text', text }] }
     return ctx.tokenMeter.estimateMessage(message) <= config.reminderMaxTokens
       && Buffer.byteLength(JSON.stringify(message), 'utf8') <= config.reminderMaxBytes
   }
-  const selected: typeof groups = []
-  // Make easily missed task/carrier nodes visible before spending room on instructions.
-  if (fits(render(selected))) {
-    for (const group of [...groups].sort((a, b) => Number(b.hasLatestTask) - Number(a.hasLatestTask))) {
-      if (fits(render([...selected, group]))) selected.push(group)
-    }
-    message = { ...message, content: [{ type: 'text', text: render(selected) }] }
+  const text = renderProtectionMap(core, surface, protection, fits)
+  if (text !== undefined) {
+    message = { ...message, content: [{ type: 'text', text }] }
   } else {
     const requiredTokens = ctx.tokenMeter.estimateMessage(message)
     const requiredBytes = Buffer.byteLength(JSON.stringify(message), 'utf8')
