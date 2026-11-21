@@ -34,21 +34,22 @@ try {
   await put(join(host, 'package.json'), {
     name: 'acp-isolated-host', private: true, type: 'module',
     dependencies: {
-      '@deepseek-ai/dsh': '0.2.2-rc.1', '@deepseek-ai/cordis-plugin-group': '1.1.0',
+      '@deepseek-ai/dsh': release.baseline, '@deepseek-ai/cordis-plugin-group': '1.1.0',
       '@deepseek-ai/cordis': '4.1.0',
       // Required peers of Tools, AgentLoop, Persistence and Basic belong to the Host root.
       ...Object.fromEntries([
-        'llm', 'agent', 'scope', 'sandbox', 'session', 'ptc-runtime',
+        'llm', 'error', 'agent', 'scope', 'sandbox', 'session', 'ptc-runtime',
         'system-prompt', 'user-approval', 'sandbox-policy', 'tools', 'session-projection',
         'session-persistence', 'commands', 'compaction', 'token-meter',
         'compaction-tool-result-pruner', 'agent-loop', 'tool-executor-native',
-      ].map(name => ['@deepseek-ai/dsh-' + name, '0.2.2-rc.1'])),
+      ].map(name => ['@deepseek-ai/dsh-' + name, release.baseline])),
     },
   })
   await put(join(host, 'pnpm-workspace.yaml'), {
     packages: [], blockExoticSubdeps: false,
     allowBuilds: { '@deepseek-ai/dsh-subprocess-local': true, '@google/genai': true, koffi: true, 'node-pty': true, protobufjs: true },
     overrides: {
+      ...Object.fromEntries(Object.entries(release.dependencies).map(([name, pin]) => [name, pin.source])),
       '@deepseek-ai/dsh-session': session,
       '@deepseek-ai/dsh-session-query': source(values.query),
       '@deepseek-ai/dsh-session-query-sqlite': sqlite,

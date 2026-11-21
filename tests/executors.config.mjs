@@ -1,5 +1,5 @@
-// Published executor behavior does not require the capture-capable Query fork.
+// Test installed DSH release packages without source aliases.
 export default {
   cacheDir: '.scratch/text-anchors/vite-published',
-  test: { include: ['tests/guard.spec.ts', 'tests/executors.spec.ts'], maxWorkers: 1, pool: 'forks' },
+  test: { include: ['tests/guard.spec.ts', 'tests/executors.spec.ts', 'tests/loop-tools-replay.spec.ts', 'tests/ptc.spec.ts', 'tests/reminder-lifecycle.spec.ts'], maxWorkers: 1, pool: 'forks' },
 }

@@ -51,7 +51,7 @@ ACP（Active Context Pruning，模型主动裁剪上下文）是树外 Cordis �
 
 ## 配置与运行条件
 
-面向 DSH `0.2.2-rc.1`（Node ≥24.9）；manifest 固定官方精确版本，Session／Query 的 capture fork 通过 pnpm overrides 提供，完整构建与验收待同基线 fork 包。API 清单、required runtime context 与 plugin record 影响见 [rc.1 兼容说明](<docs/rc1-compatibility.md>)。ACP 替换唯一 `compaction` provider；使用时须禁用原 Basic provider。原生自动压缩、模型切换压力检查、pruner 和 overflow 处理仍继承上游 Basic，不重复实现。使用方须显式挂载 native 或 PTC executor；不再配置 `tools.mode`。依赖 Query `captureSession` 和 tokenMeter，不需要 session-tools；普通历史工具可独立启用。
+面向 DSH `0.2.2-rc.5`（Node ≥24.9）；manifest 固定官方精确版本，Session／Query 的 capture fork 通过 pnpm overrides 提供，完整构建与验收使用同基线 fork 包。API 清单、required runtime context 与 plugin record 影响见 [rc.1 兼容说明](<docs/rc1-compatibility.md>)。ACP 替换唯一 `compaction` provider；使用时须禁用原 Basic provider。原生自动压缩、模型切换压力检查、pruner 和 overflow 处理仍继承上游 Basic，不重复实现。使用方须显式挂载 native 或 PTC executor；不再配置 `tools.mode`。依赖 Query `captureSession` 和 tokenMeter，不需要 session-tools；普通历史工具可独立启用。
 
 配置分为 `acp` 和 `basic`：前者控制提交与提醒预算，后者控制原生压力策略。ACP 默认值：
 
