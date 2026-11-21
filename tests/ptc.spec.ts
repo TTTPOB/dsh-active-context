@@ -181,8 +181,9 @@ for (const mode of ['native', 'ptc'] as const) for (const change of ['none', 'in
         const session = f.agent.session
         const log = session.snapshotEvents()
         const root = log.find(event => event.type === 'tool/result' && event.data.message.toolCallId === mapId)
+        const child = log.find(event => event.type === 'tool/ptc-dispatch' && event.data.name === 'context_boundaries')
         const map = mode === 'native' ? (root?.type === 'tool/result' ? root.data.message.content : undefined)
-          : log.find(event => event.type === 'tool/ptc-dispatch' && event.data.name === 'context_boundaries')?.data.content
+          : child?.type === 'tool/ptc-dispatch' ? child.data.content : undefined
         const text = map?.find(block => block.type === 'text')?.text
         expect(text).toMatch(/B\d+ instructions .*system /)
         expect(text).not.toContain('Inspect boundaries and optionally compress completed history.')

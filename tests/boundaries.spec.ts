@@ -49,7 +49,7 @@ it('real Loader/Loop maps the latest relay body, rejects a crossing range and co
     }), { surfaceOp: 'append' })
     await runTurn(f.agent, 'Independent historical input.')
     await runTurn(f.agent, 'Historical input before the relay.')
-    f.agent.followup(createAgentMessage(f.agent, [{ type: 'text', text: task }]))
+    f.agent.followup(createAgentMessage(f.agent, 'parent', [{ type: 'text', text: task }]))
     await f.agent.whenIdle()
     expect(notices(f.agent.session)).toHaveLength(0)
     f.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Compress completed history now.' }], source: { kind: 'user', form: 'notice', summary: 'Maintenance' } }))
