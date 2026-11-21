@@ -38,7 +38,7 @@ interface Root {
 /** Register root ownership; only a direct child can consume the one allowed call. */
 export function installPtc(
   ctx: Context, config: AcpConfig, state: AcpState,
-  authorize: (exec: Readonly<ToolExecution>) => ExecutionIdentity | undefined,
+  authorize: (exec: Readonly<ToolExecution>) => ExecutionIdentity | 'mixed-response' | undefined,
 ): (exec: Readonly<ToolExecution>) => ExecutionIdentity | undefined {
   const roots = new Map<ToolExecution['token'], Root>()
   const rootOf = (exec: Readonly<ToolExecution>) => {
@@ -66,6 +66,9 @@ export function installPtc(
       return 'ACP PTC requires a TypeScript function-body runtime. Configure that runtime or use native mode. ' + PTC_DENIAL
     }
     const identity = authorize(exec)
+    if (identity === 'mixed-response') {
+      return 'ACP: remove visible text and other tool calls from the same assistant response. Retry with only this run_code call; the code does not need to change.'
+    }
     if (identity === undefined) return PTC_DENIAL
     roots.set(exec.token, { exec, identity, input })
     return undefined

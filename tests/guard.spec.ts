@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { createAssistantMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { Context } from '@deepseek-ai/cordis'
 import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
+import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { PtcRuntime, type PtcRunRequest, type PtcRunSpec } from '@deepseek-ai/dsh-ptc-runtime'
 import { call, facts, fixture } from './guard-fixtures/fixture.ts'
 
 const contexts: Context[] = []
@@ -11,7 +13,35 @@ const create = async (options: Parameters<typeof fixture>[0] = {}) => {
 }
 const results = (f: Awaited<ReturnType<typeof fixture>>) => f.agent.session.snapshotEvents().filter(event => event.type === 'tool/result')
 
+class AdmissionRuntime extends PtcRuntime {
+  readonly language = 'typescript'
+  readonly isolation = 'test'
+  override get programFormat() { return 'function-body' as const }
+  resolve(request: PtcRunRequest): PtcRunSpec {
+    return { ...request, cwd: request.cwd ?? process.cwd(), timeoutMs: 15_000 }
+  }
+  async run() { return { logs: [], value: 'runtime reached' } }
+}
+
 describe('independent compression admission', () => {
+  it.each(['text', 'sibling', 'mention'] as const)('diagnoses canonical PTC only when mixed with %s', async kind => {
+    const program = kind === 'mention' ? 'return "context_compress";' : 'return await tools.context_compress({});'
+    const root = { ...call('root', 'run_code'), arguments: JSON.stringify({ code: program, description: 'Fixture' }) }
+    const blocks = kind === 'text' ? [{ type: 'text' as const, text: 'visible task answer' }, root]
+      : kind === 'sibling' ? [root, { ...root, id: ToolCallId('sibling'), arguments: JSON.stringify({ code: 'return 1;', description: 'Fixture' }) }]
+      : [root]
+    const f = await create({ mode: 'ptc', replies: [blocks, [{ type: 'text', text: 'done' }]] })
+    provideWorkingDirectoryFixture(f.ctx)
+    await f.ctx.plugin(AdmissionRuntime)
+    await f.run()
+    const result = results(f).find(event => event.data.message.toolCallId === root.id)!.data.message
+    expect(result.isError).toBe(kind !== 'mention')
+    if (kind !== 'mention') {
+      expect(JSON.stringify(result.content)).toMatch(/remove visible text and other tool calls/)
+      expect(JSON.stringify(result.content)).toMatch(/code does not need to change/)
+    }
+    expect(f.executions).toHaveLength(0)
+  })
   for (const mode of ['native'] as const) it(`accepts one ${mode} call and records the appended author route`, async () => {
     const f = await create({ mode, cleanup: false })
     const pair = await f.manual([{ type: 'reasoning', text: 'select old context' }, call()])

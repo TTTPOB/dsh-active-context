@@ -48,7 +48,7 @@ export function installGuard(ctx: Context, config: AcpConfig, state: AcpState): 
     clear(authors.get(session))
     authors.delete(session)
   })
-  const authorize = (exec: Readonly<ToolExecution>): ExecutionIdentity | undefined => {
+  const authorize = (exec: Readonly<ToolExecution>): ExecutionIdentity | 'mixed-response' | undefined => {
     if (exec.agent === undefined || exec.parent !== undefined || exec.rootCallId !== exec.callId) return undefined
     const author = authors.get(exec.agent.session)
     const assistant = author?.assistant
@@ -56,10 +56,10 @@ export function installGuard(ctx: Context, config: AcpConfig, state: AcpState): 
       || !exec.agent.session.surface.nodes.includes(assistant.seq)) return undefined
     const { message } = assistant.data
     const calls = message.content.filter(block => block.type === 'tool-call')
-    if (calls.length !== 1 || calls[0]?.id !== exec.callId || calls[0].name !== exec.name
-      || message.content.some(block => block.type !== 'tool-call' && block.type !== 'reasoning'
-        && !(block.type === 'text' && block.text.trim() === ''))
+    if (!calls.some(call => call.id === exec.callId && call.name === exec.name)
       || message.source.provider.trim() === '' || message.source.model.trim() === '') return undefined
+    if (calls.length !== 1 || message.content.some(block => block.type !== 'tool-call' && block.type !== 'reasoning'
+      && !(block.type === 'text' && block.text.trim() === ''))) return 'mixed-response'
     return { sessionId: exec.agent.session.id, turn: author.turn, step: author.step,
       assistantSeq: assistant.seq, callId: exec.callId, provider: message.source.provider, model: message.source.model }
   }
@@ -68,7 +68,7 @@ export function installGuard(ctx: Context, config: AcpConfig, state: AcpState): 
     if (exec.name !== 'context_compress') return undefined
     const deny = 'ACP: context_compress requires one independent native call, no task text or siblings. Retry directly in a separate assistant response; select each region with two distinctive literal text endpoints in range (optional role) and a non-empty summary. For PTC, ' + PTC_DENIAL
     const identity = exec.parent === undefined ? authorize(exec) : admitPtc(exec)
-    if (identity === undefined || exec.agent === undefined) return deny
+    if (identity === undefined || identity === 'mixed-response' || exec.agent === undefined) return deny
     const author = authors.get(exec.agent.session)
     if (author === undefined || [...author.executions].some(previous => previous.callId === exec.callId)) return deny
     state.identities.set(exec, identity)
